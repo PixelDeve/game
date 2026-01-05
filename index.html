@@ -93,7 +93,6 @@
         #loading { position: fixed; inset: 0; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
         #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
         
-        /* New Styles for Multiplayer Tags */
         .player-label {
             position: absolute;
             background: rgba(0,0,0,0.5);
@@ -170,12 +169,10 @@
     </div>
 
     <script type="module">
-        // FIXED: Using a stable, existing version of Firebase (10.13.1)
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, limitToLast, setDoc, doc, updateDoc, serverTimestamp, deleteDoc, where } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, limitToLast, setDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
-        // CONFIGURATION - Updated with User's settings
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
             authDomain: "pixelbox-bca1b.firebaseapp.com",
@@ -191,7 +188,6 @@
         const db = getFirestore(app);
         const APP_ID = 'pixelbox_v1'; 
 
-        // GAME CONSTANTS
         const CHUNK_SIZE = 16;
         const RENDER_DIST = 3;
         const PLAYER_HEIGHT = 1.62;
@@ -200,10 +196,9 @@
         const MINE_DELAY = 350;
         const MOVE_THRESHOLD = 15;
 
-        // STATE
         let currentUser = null;
         let userId = 'Guest';
-        let otherPlayers = {}; // Stores { mesh, label, targetPos, lastUpdate }
+        let otherPlayers = {}; 
 
         const BLOCKS = {
             1: { name: 'Grass',  tiles: [3, 3, 0, 2, 3, 3] },
@@ -224,7 +219,6 @@
         let world = {}, chunkMeshes = {}, clickables = [];
         let activeTorches = []; 
         let lightPool = []; 
-        let particles = []; 
 
         let vel = new THREE.Vector3(), onGround = false, gameTime = 0, running = false, paused = false;
         let isTouch = 'ontouchstart' in window;
@@ -234,51 +228,32 @@
         const keys = {}, joy = { x: 0, y: 0, id: null, sx: 0, sy: 0 };
         const touchState = { id: null, lx: 0, ly: 0, sx: 0, sy: 0, timer: null, moved: false, startTime: 0 };
 
-        let isFlying = false;
-        let lastJumpTime = 0;
-        let isTouchingDown = false;
-        let isTouchingUp = false;
-        let povMode = 0; 
-        let povDist = 4;
-
+        let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
 
-        // --- NETWORK FUNCTIONS ---
-
         function initNetwork() {
-            // Listen to Players
             const playersRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'players');
             onSnapshot(playersRef, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     const data = change.doc.data();
                     const pid = change.doc.id;
-                    if (pid === userId) return; // Ignore self
-
+                    if (pid === userId) return; 
                     if (change.type === "added" || change.type === "modified") {
                         if (!otherPlayers[pid]) createRemotePlayer(pid, data);
                         updateRemotePlayer(pid, data);
                     }
-                    if (change.type === "removed") {
-                        removeRemotePlayer(pid);
-                    }
+                    if (change.type === "removed") removeRemotePlayer(pid);
                 });
-            }, (err) => console.error("Player sync error (Check Firestore Rules):", err));
+            });
 
-            // Listen to World Changes (Block Placements/Breaks)
             const worldRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes');
-            // FIXED: Using limitToLast(100) and ascending order ensures we get the *correct* history timeline
-            // Old code had race conditions where breaks could be overwritten by older places.
-            const q = query(worldRef, orderBy('timestamp', 'asc'), limitToLast(100));
+            const q = query(worldRef, orderBy('timestamp', 'asc'));
             
             onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === "added") {
                         const d = change.doc.data();
-                        // Ignore our own changes as they are applied locally immediately
-                        if (d.author === userId) return; 
-                        
-                        // Apply change
-                        const key = `${d.x},${d.y},${d.z}`;
+                        const key = `${Math.floor(d.x)},${Math.floor(d.y)},${Math.floor(d.z)}`;
                         if (d.action === 'PLACE') {
                             world[key] = d.id;
                             if (d.id === 10) activeTorches.push({x:d.x, y:d.y, z:d.z, k:key});
@@ -286,21 +261,18 @@
                             delete world[key];
                             if (d.prevId === 10) activeTorches = activeTorches.filter(t => t.k !== key);
                         }
-                        refreshChunk(d.x, d.z);
+                        if (running) refreshChunk(d.x, d.z);
                     }
                 });
-            }, (err) => console.error("World sync error (Check Firestore Indexes):", err));
+            });
 
-            // Listen to Chat
             const chatRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat');
             const chatQ = query(chatRef, orderBy('timestamp', 'desc'), limit(20));
             onSnapshot(chatQ, (snapshot) => {
                 const log = document.getElementById('chat-log');
-                // Clear and rebuild to keep order correct
                 const msgs = [];
                 snapshot.forEach(doc => msgs.push(doc.data()));
-                msgs.reverse(); // Newest at bottom visually
-                
+                msgs.reverse();
                 log.innerHTML = '';
                 msgs.forEach(m => {
                     const el = document.createElement('div');
@@ -315,7 +287,7 @@
         function updateNetworkLoop() {
             if (!currentUser || !running) return;
             const now = Date.now();
-            if (now - lastNetworkUpdate > 100) { // Update 10 times a second
+            if (now - lastNetworkUpdate > 100) {
                 lastNetworkUpdate = now;
                 const playerRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId);
                 setDoc(playerRef, {
@@ -324,37 +296,17 @@
                     z: playerGroup.position.z,
                     ry: playerGroup.rotation.y,
                     lastSeen: serverTimestamp()
-                }).catch(e => console.error("Error updating pos", e));
+                }, { merge: true });
             }
         }
 
         function createRemotePlayer(pid, data) {
             const group = new THREE.Group();
-            
-            // Simple visual representation if GLTF fails, or use clone
-            let mesh;
-            if (remoteRobotGeometry && false) { // Disable cloning complex model for perf in this simple example, use box
-               // mesh = remoteRobotGeometry.clone(); 
-            } else {
-                mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
-                mesh.position.y = -0.8; // Center adjustment
-            }
-            
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
+            mesh.position.y = -0.8;
             group.add(mesh);
             scene.add(group);
-            
-            // Add Label
-            // Since we can't easily add HTML labels in 3D without CSS2DRenderer, we'll skip the label for now or use a sprite?
-            // Let's stick to simple mesh.
-            
-            otherPlayers[pid] = {
-                mesh: group,
-                targetPos: new THREE.Vector3(data.x, data.y, data.z),
-                targetRot: data.ry,
-                velocity: new THREE.Vector3()
-            };
-            
-            // Initial pos
+            otherPlayers[pid] = { group, mesh, targetPos: new THREE.Vector3(data.x, data.y, data.z), targetRot: data.ry };
             group.position.set(data.x, data.y, data.z);
         }
 
@@ -367,7 +319,7 @@
 
         function removeRemotePlayer(pid) {
             if (otherPlayers[pid]) {
-                scene.remove(otherPlayers[pid].mesh);
+                scene.remove(otherPlayers[pid].group);
                 delete otherPlayers[pid];
             }
         }
@@ -375,18 +327,13 @@
         function updateRemotePlayersVisuals(dt) {
             for (let pid in otherPlayers) {
                 const p = otherPlayers[pid];
-                // Interpolate position
-                p.mesh.position.lerp(p.targetPos, 5 * dt);
-                // Interpolate rotation (simplistic)
-                p.mesh.rotation.y = THREE.MathUtils.lerp(p.mesh.rotation.y, p.targetRot, 10 * dt);
+                p.group.position.lerp(p.targetPos, 5 * dt);
+                p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
             }
         }
 
-        // --- END NETWORK FUNCTIONS ---
-
         function broadcastAction(type, data) { 
             if (!currentUser) return;
-            
             if (type === 'PLACE' || type === 'BREAK') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
                     ...data,
@@ -406,20 +353,15 @@
         function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
 
         function saveGame() {
-            // Local save only for hotbar and preferences in multiplayer
-            const saveData = { hotbar: hotbarSlots, povMode };
-            localStorage.setItem('voxel_prefs_v1', JSON.stringify(saveData));
+            localStorage.setItem('voxel_prefs_v1', JSON.stringify({ hotbar: hotbarSlots, povMode }));
         }
 
         function loadGame() {
             const data = localStorage.getItem('voxel_prefs_v1');
-            if (!data) return false;
-            try {
-                const saved = JSON.parse(data);
-                hotbarSlots = saved.hotbar || hotbarSlots;
-                povMode = (saved.povMode !== undefined) ? saved.povMode : 1;
-                return true;
-            } catch(e) { return false; }
+            if (!data) return;
+            const saved = JSON.parse(data);
+            hotbarSlots = saved.hotbar || hotbarSlots;
+            povMode = saved.povMode ?? 0;
         }
 
         function createAtlas() {
@@ -439,12 +381,9 @@
             noise(S*2, S, '#305A18', 0.2); noise(S*3, S, '#222', 0.4); noise(0, S*2, '#DCCFA3', 0.1); ctx.fillStyle='#51A7E1';
             ctx.fillRect(S, S*2, S, S); noise(S*2, S*2, 'rgba(200,240,255,0.3)', 0.05); noise(S*3, S*2, '#A07040', 0.05);
             noise(0, S*3, '#111', 0.5); 
-            
-            // Torch Texture - Improved
             ctx.fillStyle='#604020'; ctx.fillRect(S+S/3, S*3+S/3, S/4, S/1.5);
-            ctx.fillStyle='#FFCC00'; ctx.fillRect(S+S/3-2, S*3+4, S/4+4, S/4); // Flame base
-            ctx.fillStyle='#FFFF00'; ctx.fillRect(S+S/3, S*3+4, S/4, S/6); // Flame core
-
+            ctx.fillStyle='#FFCC00'; ctx.fillRect(S+S/3-2, S*3+4, S/4+4, S/4);
+            ctx.fillStyle='#FFFF00'; ctx.fillRect(S+S/3, S*3+4, S/4, S/6);
             ctx.fillStyle='#2850C8'; ctx.fillRect(S*2, S*3, S, S);
             noise(S*3, S*3, '#666', 0.2); const tex = new THREE.CanvasTexture(canvas);
             tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; return tex;
@@ -484,9 +423,7 @@
                         const wx = cx*CHUNK_SIZE+x, wz = cz*CHUNK_SIZE+z;
                         const type = getBlock(wx, y, wz);
                         if(type === 0) continue;
-                        
                         const isTorch = BLOCKS[type].isTorch;
-
                         const faces = [
                             { n:[1,0,0],  v:[1,0,0, 1,1,0, 1,1,1, 1,0,1], ao:0.8 },
                             { n:[-1,0,0], v:[0,0,1, 0,1,1, 0,1,0, 0,0,0], ao:0.8 },
@@ -497,28 +434,12 @@
                         ];
                         faces.forEach((f, fi) => {
                             const nType = getBlock(wx+f.n[0], y+f.n[1], wz+f.n[2]);
-                            
-                            // FIX: If it's a torch, ALWAYS draw the face. Otherwise check neighbors.
-                            if (!isTorch) {
-                                if(nType !== 0 && (!BLOCKS[nType].transparent || nType === type)) return;
-                            }
-
+                            if (!isTorch) if(nType !== 0 && (!BLOCKS[nType].transparent || nType === type)) return;
                             for(let i=0; i<4; i++) {
                                 let vx = f.v[i*3], vy = f.v[i*3+1], vz = f.v[i*3+2];
-                                
-                                if(isTorch) { 
-                                    // Make torch thin like Minecraft (2 pixels wide = 0.125 units)
-                                    // Center is 0.5. Bounds: 0.4375 to 0.5625
-                                    vx = 0.4375 + vx*0.125; 
-                                    vy = vy*0.625; // Height approx 10 pixels
-                                    vz = 0.4375 + vz*0.125; 
-                                }
-
+                                if(isTorch) { vx = 0.4375 + vx*0.125; vy = vy*0.625; vz = 0.4375 + vz*0.125; }
                                 pos.push(wx+vx, y+vy, wz+vz); norm.push(...f.n); 
-                                
-                                // FIX: Torches should be fully bright (self-illuminated)
-                                if(isTorch) color.push(1.5, 1.3, 1.0);
-                                else color.push(f.ao, f.ao, f.ao);
+                                if(isTorch) color.push(1.5, 1.3, 1.0); else color.push(f.ao, f.ao, f.ao);
                             }
                             const tIdx = BLOCKS[type].tiles[fi];
                             const u = (tIdx % 4) * 0.25, v = 1 - (Math.floor(tIdx / 4) + 1) * 0.125; 
@@ -541,12 +462,10 @@
 
         function refreshChunk(wx, wz) {
             const cx = Math.floor(wx/CHUNK_SIZE), cz = Math.floor(wz/CHUNK_SIZE);
-            [-1, 0, 1].forEach(dx => [-1, 0, 1].forEach(dz => {
-                const k = `${cx+dx},${cz+dz}`;
-                if(chunkMeshes[k]) { scene.remove(chunkMeshes[k]); clickables = clickables.filter(c => c !== chunkMeshes[k]); delete chunkMeshes[k]; }
-                const m = buildChunk(cx+dx, cz+dz);
-                if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
-            }));
+            const k = `${cx},${cz}`;
+            if(chunkMeshes[k]) { scene.remove(chunkMeshes[k]); clickables = clickables.filter(c => c !== chunkMeshes[k]); delete chunkMeshes[k]; }
+            const m = buildChunk(cx, cz);
+            if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
         }
 
         function interact(place) {
@@ -556,33 +475,20 @@
                 const h = hits[0], n = h.face.normal;
                 const bx = Math.floor(h.point.x - n.x*0.1), by = Math.floor(h.point.y - n.y*0.1), bz = Math.floor(h.point.z - n.z*0.1);
                 const pbx = Math.floor(h.point.x + n.x*0.5), pby = Math.floor(h.point.y + n.y*0.5), pbz = Math.floor(h.point.z + n.z*0.5);
-                
-                const key = `${pbx},${pby},${pbz}`;
-                const breakKey = `${bx},${by},${bz}`;
-
                 if(place) {
                     const id = hotbarSlots[activeHotbarIndex];
                     if(id === 0 || getBlock(pbx, pby, pbz) !== 0) return false;
-
                     const px = playerGroup.position.x, py = playerGroup.position.y, pz = playerGroup.position.z;
-                    const isXOverlap = px + PLAYER_RADIUS > pbx && px - PLAYER_RADIUS < pbx + 1;
-                    const isZOverlap = pz + PLAYER_RADIUS > pbz && pz - PLAYER_RADIUS < pbz + 1;
-                    const isYOverlap = py > pby && py - PLAYER_HEIGHT < pby + 1;
-                    
-                    if(isXOverlap && isZOverlap && isYOverlap) return false;
-
-                    world[key] = id;
-                    if(id === 10) activeTorches.push({x:pbx, y:pby, z:pbz, k:key});
-
+                    if(px + PLAYER_RADIUS > pbx && px - PLAYER_RADIUS < pbx + 1 && pz + PLAYER_RADIUS > pbz && pz - PLAYER_RADIUS < pbz + 1 && py > pby && py - PLAYER_HEIGHT < pby + 1) return false;
+                    const k = `${pbx},${pby},${pbz}`;
+                    world[k] = id; if(id === 10) activeTorches.push({x:pbx, y:pby, z:pbz, k});
                     refreshChunk(pbx, pbz);
                     broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
                 } else {
                     const type = getBlock(bx, by, bz);
                     if(!type || BLOCKS[type]?.indestructible) return false;
-                    world[breakKey] = 0;
-                    
-                    if(type === 10) activeTorches = activeTorches.filter(t => t.k !== breakKey);
-
+                    const k = `${bx},${by},${bz}`;
+                    delete world[k]; if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
                     refreshChunk(bx, bz);
                     broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
                 }
@@ -643,19 +549,14 @@
             const container = document.getElementById('chat-container');
             const isOpening = container.style.display !== 'flex';
             container.style.display = isOpening ? 'flex' : 'none';
-            if (isOpening) {
-                document.getElementById('chat-input').focus();
-                if(document.pointerLockElement) document.exitPointerLock();
-            } else if(!isTouch && !paused) document.body.requestPointerLock();
+            if (isOpening) { document.getElementById('chat-input').focus(); if(document.pointerLockElement) document.exitPointerLock(); } 
+            else if(!isTouch && !paused) document.body.requestPointerLock();
         }
 
         function sendChatMessage() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
-            if (text) {
-                input.value = '';
-                broadcastAction('CHAT', { text });
-            }
+            if (text) { input.value = ''; broadcastAction('CHAT', { text }); }
         }
 
         function setupInput() {
@@ -670,12 +571,12 @@
             fsBtn.onclick = (e) => { e.stopPropagation(); if (!document.fullscreenElement) document.documentElement.requestFullscreen().then(() => fsBtn.innerText = "EXIT"); else document.exitFullscreen().then(() => fsBtn.innerText = "FULL"); };
             pBtn.onclick = (e) => { e.stopPropagation(); paused = true; pMenu.style.display = 'flex'; if(document.pointerLockElement) document.exitPointerLock(); };
             document.getElementById('resume-btn').onclick = () => { paused = false; pMenu.style.display = 'none'; if(!isTouch) document.body.requestPointerLock(); };
-            document.getElementById('quit-btn').onclick = () => { saveGame(); document.getElementById('quit-btn').innerText = "SAVED!"; setTimeout(() => { location.reload(); }, 1000); };
+            document.getElementById('quit-btn').onclick = () => { saveGame(); location.reload(); };
 
             if(isTouch) {
                 const zone = document.getElementById('joy-zone'), nub = document.getElementById('joy-nub');
                 document.addEventListener('touchstart', e => {
-                    if (!running || paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex') return;
+                    if (!running || paused) return;
                     for(let t of e.changedTouches) {
                         const r = zone.getBoundingClientRect();
                         if (t.target.closest('#hotbar-container') || t.target.closest('.corner-btn') || t.target.closest('#inventory-overlay') || t.target.closest('#chat-container')) continue;
@@ -689,7 +590,7 @@
                             touchState.timer = setTimeout(() => { if(!touchState.moved) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } }, 200);
                         }
                     }
-                }, {passive: false});
+                });
                 document.addEventListener('touchmove', e => {
                     if(!running) return;
                     for(let t of e.changedTouches) {
@@ -699,8 +600,7 @@
                             nub.style.transform = `translate(${Math.cos(angle)*d - 20}px,${Math.sin(angle)*d - 20}px)`;
                         } else if(t.identifier === touchState.id) {
                             if(Math.hypot(t.clientX - touchState.sx, t.clientY - touchState.sy) > MOVE_THRESHOLD) {
-                                touchState.moved = true;
-                                if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
+                                touchState.moved = true; if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
                                 document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)';
                             }
                             playerGroup.rotation.y -= (t.clientX - touchState.lx) * 0.008;
@@ -708,7 +608,7 @@
                             touchState.lx = t.clientX; touchState.ly = t.clientY;
                         }
                     }
-                }, {passive: false});
+                });
                 document.addEventListener('touchend', e => {
                     if(!running) return;
                     for(let t of e.changedTouches) {
@@ -724,10 +624,10 @@
                     }
                 });
             } else {
-                window.onkeydown = e => { if (!running || document.getElementById('chat-container').style.display === 'flex') return; keys[e.key.toLowerCase()] = 1; if(e.key===' ') handleJumpTap(); if(e.key==='Escape') { paused = !paused; pMenu.style.display = paused ? 'flex' : 'none'; } if(e.key === 'v') { povMode = (povMode+1)%3; updatePOV(); } if(e.key === 't') { e.preventDefault(); toggleChat(); } };
+                window.onkeydown = e => { if (!running || document.activeElement.tagName === 'INPUT') return; keys[e.key.toLowerCase()] = 1; if(e.key===' ') handleJumpTap(); if(e.key==='Escape') { paused = !paused; pMenu.style.display = paused ? 'flex' : 'none'; } };
                 window.onkeyup = e => { if(!running) return; keys[e.key.toLowerCase()] = 0; };
-                window.onmousedown = e => { if(!running || paused || document.getElementById('chat-container').style.display === 'flex') return; if(e.button === 0) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } else interact(true); };
-                window.onmouseup = e => { if(!running) return; if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; };
+                window.onmousedown = e => { if(!running || paused || document.activeElement.tagName === 'INPUT') return; if(e.button === 0) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } else interact(true); };
+                window.onmouseup = e => { if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; };
                 window.onmousemove = e => { if(!running) return; if(document.pointerLockElement) { playerGroup.rotation.y-=e.movementX*0.002; cameraPivot.rotation.x=Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x-e.movementY*0.002)); }};
             }
         }
@@ -769,34 +669,6 @@
             }
         }
 
-        function updateLights() {
-            // Find closest torches to player
-            const px = playerGroup.position.x, py = playerGroup.position.y, pz = playerGroup.position.z;
-            
-            // Sort active torches by distance
-            activeTorches.sort((a,b) => {
-                const d1 = (a.x-px)**2 + (a.y-py)**2 + (a.z-pz)**2;
-                const d2 = (b.x-px)**2 + (b.y-py)**2 + (b.z-pz)**2;
-                return d1 - d2;
-            });
-
-            // Assign lights to the closest 6 torches
-            for(let i=0; i<lightPool.length; i++) {
-                if(i < activeTorches.length) {
-                    const t = activeTorches[i];
-                    // Only light up if within render distance approx
-                    if(Math.abs(t.x-px) < 40 && Math.abs(t.z-pz) < 40) {
-                        lightPool[i].position.set(t.x + 0.5, t.y + 0.7, t.z + 0.5);
-                        lightPool[i].visible = true;
-                    } else {
-                        lightPool[i].visible = false;
-                    }
-                } else {
-                    lightPool[i].visible = false;
-                }
-            }
-        }
-
         function animate() {
             if(!running) return;
             requestAnimationFrame(animate);
@@ -812,24 +684,31 @@
             playerGroup.position.y += vel.y*dt;
             if(checkCol(playerGroup.position)) { if(vel.y < 0) { playerGroup.position.y = Math.ceil(playerGroup.position.y - PLAYER_HEIGHT) + PLAYER_HEIGHT; vel.y = 0; onGround = true; } else { playerGroup.position.y = Math.floor(playerGroup.position.y + 0.1) - 0.1; vel.y = 0; } } else onGround = false;
             if(mixer) { const hv = Math.hypot(dx, dz); if(hv > 0.5) fadeToAction('Walking', 0.2); else fadeToAction('Idle', 0.2); }
-            
-            if(povMode > 0 && externalModel) { if(cameraPivot.rotation.x < -0.5) camera.position.z = Math.max(2, povDist + (cameraPivot.rotation.x * 2)); else camera.position.z = (povMode === 1) ? povDist : -povDist; }
-            if (externalModel && (Math.abs(dx) > 0.1 || Math.abs(dz) > 0.1)) externalModel.rotation.y = THREE.MathUtils.lerp(externalModel.rotation.y, Math.atan2(dx, dz) - playerGroup.rotation.y, 0.2);
             if(externalModel) externalModel.position.y = -1.6;
-            
             gameTime += dt; const angle = ((gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS) * Math.PI * 2;
             sunLight.position.set(Math.sin(angle) * 60, Math.cos(angle) * 60, 20);
             const skyColor = Math.cos(angle) > 0 ? new THREE.Color(0x87CEEB) : new THREE.Color(0x0a0a1a);
             scene.background = skyColor; scene.fog.color = skyColor; stars.material.opacity = Math.cos(angle) < 0 ? 1 : 0;
             raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
             if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
-            if(clouds) clouds.position.x += dt * 0.5; 
-            
-            updateLights();
-            updateNetworkLoop();
-            updateRemotePlayersVisuals(dt);
+            updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld(); renderer.render(scene, camera);
+        }
+
+        async function startGame(user) {
+            currentUser = user;
+            userId = user.uid;
+            document.getElementById('user-display-id').innerText = userId.substr(0, 8);
+            document.getElementById('loading').style.display = 'none';
+            loadGame();
+            initNetwork();
+            playerGroup.position.set(0.5, 32, 0.5);
+            for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
+            running = true;
+            updatePOV();
+            if(!isTouch) document.body.requestPointerLock();
+            else document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
             updateWorld();
-            renderer.render(scene, camera);
+            animate();
         }
 
         async function init() {
@@ -837,69 +716,41 @@
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
-            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
+            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
             scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); scene.add(sunLight = new THREE.DirectionalLight(0xffffff, 0.8));
-            
-            // LIGHT POOL INITIALIZATION
-            for(let i=0; i<6; i++) {
-                const pl = new THREE.PointLight(0xFF9900, 1, 12);
-                pl.visible = false;
-                scene.add(pl);
-                lightPool.push(pl);
-            }
-
             raycaster = new THREE.Raycaster(); selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
             scene.add(selectionBox); 
             new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
                 externalModel = gltf.scene; externalModel.scale.set(0.4, 0.4, 0.4); playerGroup.add(externalModel);
                 mixer = new THREE.AnimationMixer(externalModel); gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
                 if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
-                document.getElementById('loading-text').innerText = 'READY TO CONNECT'; document.getElementById('start-btn').style.display = 'block';
+                document.getElementById('loading-text').innerText = 'CHECKING AUTH...';
+                
+                // Set persistence so users stay logged in
+                setPersistence(auth, browserLocalPersistence).then(() => {
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            startGame(user);
+                        } else {
+                            document.getElementById('loading-text').innerText = 'READY TO CONNECT';
+                            document.getElementById('start-btn').style.display = 'block';
+                        }
+                    });
+                });
             }, undefined, () => {
-                externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x00ff00})); externalModel.position.y = -0.8; playerGroup.add(externalModel); document.getElementById('start-btn').style.display = 'block';
+                externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x00ff00})); playerGroup.add(externalModel); 
+                document.getElementById('start-btn').style.display = 'block';
             });
             clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
             const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
             setupInput(); updateUI();
             
-            // AUTH HANDLER
             document.getElementById('start-btn').onclick = async () => {
-                document.getElementById('loading-text').innerText = 'CONNECTING TO GOOGLE...';
                 try {
                     const provider = new GoogleAuthProvider();
-                    const result = await signInWithPopup(auth, provider);
-                    currentUser = result.user;
-                    userId = currentUser.uid;
-                    document.getElementById('user-display-id').innerText = userId.substr(0, 8);
-                    
-                    document.getElementById('loading').style.display = 'none'; 
-                    loadGame(); // Load prefs
-                    
-                    // Init Network Listeners
-                    initNetwork();
-
-                    // Initial Spawn Logic
-                    playerGroup.position.set(0.5, 32, 0.5); 
-                    // Simple floor finder
-                    for(let y=30; y>0; y--) {
-                        if(getBlock(0,y,0) !== 0) { 
-                            playerGroup.position.y = y+PLAYER_HEIGHT; 
-                            break; 
-                        }
-                    }
-
-                    running = true; 
-                    updatePOV(); 
-                    if(!isTouch) document.body.requestPointerLock(); 
-                    else document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
-                    updateWorld(); 
-                    animate();
-
-                } catch (error) {
-                    console.error("Auth failed:", error);
-                    document.getElementById('loading-text').innerText = 'LOGIN FAILED: ' + error.message;
-                }
+                    await signInWithPopup(auth, provider);
+                } catch (error) { console.error("Auth failed:", error); }
             };
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
@@ -907,5 +758,4 @@
     </script>
 </body>
 </html>
-
 
