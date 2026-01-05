@@ -171,7 +171,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, limitToLast, setDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
@@ -193,7 +193,7 @@
         const PLAYER_HEIGHT = 1.62;
         const PLAYER_RADIUS = 0.3;
         const DAY_LENGTH_SECONDS = 300; 
-        const MINE_DELAY = 350;
+        const MINE_DELAY = 400; // Slightly increased for stability
         const MOVE_THRESHOLD = 15;
 
         let currentUser = null;
@@ -215,10 +215,9 @@
         };
 
         let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars;
-        let playerGroup, externalModel, cameraPivot, remoteRobotGeometry;
+        let playerGroup, externalModel, cameraPivot;
         let world = {}, chunkMeshes = {}, clickables = [];
         let activeTorches = []; 
-        let lightPool = []; 
 
         let vel = new THREE.Vector3(), onGround = false, gameTime = 0, running = false, paused = false;
         let isTouch = 'ontouchstart' in window;
@@ -473,8 +472,11 @@
             const hits = raycaster.intersectObjects(clickables);
             if(hits.length > 0) {
                 const h = hits[0], n = h.face.normal;
-                const bx = Math.floor(h.point.x - n.x*0.1), by = Math.floor(h.point.y - n.y*0.1), bz = Math.floor(h.point.z - n.z*0.1);
-                const pbx = Math.floor(h.point.x + n.x*0.5), pby = Math.floor(h.point.y + n.y*0.5), pbz = Math.floor(h.point.z + n.z*0.5);
+                // For breaking, we look slightly INSIDE the block
+                const bx = Math.floor(h.point.x - n.x*0.05), by = Math.floor(h.point.y - n.y*0.05), bz = Math.floor(h.point.z - n.z*0.05);
+                // For placing, we look slightly OUTSIDE the block
+                const pbx = Math.floor(h.point.x + n.x*0.05), pby = Math.floor(h.point.y + n.y*0.05), pbz = Math.floor(h.point.z + n.z*0.05);
+                
                 if(place) {
                     const id = hotbarSlots[activeHotbarIndex];
                     if(id === 0 || getBlock(pbx, pby, pbz) !== 0) return false;
@@ -486,7 +488,7 @@
                     broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
                 } else {
                     const type = getBlock(bx, by, bz);
-                    if(!type || BLOCKS[type]?.indestructible) return false;
+                    if(type === 0 || BLOCKS[type]?.indestructible) return false;
                     const k = `${bx},${by},${bz}`;
                     delete world[k]; if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
                     refreshChunk(bx, bz);
@@ -587,7 +589,12 @@
                         else if(touchState.id === null) {
                             touchState.id = t.identifier; touchState.lx = t.clientX; touchState.ly = t.clientY; touchState.sx = t.clientX; touchState.sy = t.clientY; 
                             touchState.startTime = Date.now(); touchState.moved = false;
-                            touchState.timer = setTimeout(() => { if(!touchState.moved) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } }, 200);
+                            touchState.timer = setTimeout(() => { 
+                                if(!touchState.moved) { 
+                                    document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
+                                    touchState.timer = setInterval(() => interact(false), MINE_DELAY); 
+                                } 
+                            }, 200);
                         }
                     }
                 });
@@ -600,7 +607,8 @@
                             nub.style.transform = `translate(${Math.cos(angle)*d - 20}px,${Math.sin(angle)*d - 20}px)`;
                         } else if(t.identifier === touchState.id) {
                             if(Math.hypot(t.clientX - touchState.sx, t.clientY - touchState.sy) > MOVE_THRESHOLD) {
-                                touchState.moved = true; if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
+                                touchState.moved = true; 
+                                if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
                                 document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)';
                             }
                             playerGroup.rotation.y -= (t.clientX - touchState.lx) * 0.008;
@@ -624,11 +632,35 @@
                     }
                 });
             } else {
-                window.onkeydown = e => { if (!running || document.activeElement.tagName === 'INPUT') return; keys[e.key.toLowerCase()] = 1; if(e.key===' ') handleJumpTap(); if(e.key==='Escape') { paused = !paused; pMenu.style.display = paused ? 'flex' : 'none'; } };
+                window.onkeydown = e => { 
+                    if (!running || document.activeElement.tagName === 'INPUT') return; 
+                    keys[e.key.toLowerCase()] = 1; 
+                    if(e.key===' ') handleJumpTap(); 
+                    if(e.key==='Escape') { paused = !paused; pMenu.style.display = paused ? 'flex' : 'none'; } 
+                };
                 window.onkeyup = e => { if(!running) return; keys[e.key.toLowerCase()] = 0; };
-                window.onmousedown = e => { if(!running || paused || document.activeElement.tagName === 'INPUT') return; if(e.button === 0) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } else interact(true); };
-                window.onmouseup = e => { if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; };
-                window.onmousemove = e => { if(!running) return; if(document.pointerLockElement) { playerGroup.rotation.y-=e.movementX*0.002; cameraPivot.rotation.x=Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x-e.movementY*0.002)); }};
+                window.onmousedown = e => { 
+                    if(!running || paused || document.activeElement.tagName === 'INPUT') return; 
+                    if(e.button === 0) { 
+                        document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
+                        if(touchState.timer) clearInterval(touchState.timer);
+                        touchState.timer = setInterval(() => interact(false), MINE_DELAY); 
+                    } else if(e.button === 2) {
+                        interact(true); 
+                    }
+                };
+                window.onmouseup = e => { 
+                    if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } 
+                    document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; 
+                };
+                window.oncontextmenu = e => e.preventDefault();
+                window.onmousemove = e => { 
+                    if(!running) return; 
+                    if(document.pointerLockElement) { 
+                        playerGroup.rotation.y-=e.movementX*0.002; 
+                        cameraPivot.rotation.x=Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x-e.movementY*0.002)); 
+                    }
+                };
             }
         }
 
@@ -725,16 +757,10 @@
                 mixer = new THREE.AnimationMixer(externalModel); gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
                 if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
                 document.getElementById('loading-text').innerText = 'CHECKING AUTH...';
-                
-                // Set persistence so users stay logged in
                 setPersistence(auth, browserLocalPersistence).then(() => {
                     onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            startGame(user);
-                        } else {
-                            document.getElementById('loading-text').innerText = 'READY TO CONNECT';
-                            document.getElementById('start-btn').style.display = 'block';
-                        }
+                        if (user) startGame(user);
+                        else { document.getElementById('loading-text').innerText = 'READY TO CONNECT'; document.getElementById('start-btn').style.display = 'block'; }
                     });
                 });
             }, undefined, () => {
@@ -745,12 +771,9 @@
             const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
             setupInput(); updateUI();
-            
             document.getElementById('start-btn').onclick = async () => {
-                try {
-                    const provider = new GoogleAuthProvider();
-                    await signInWithPopup(auth, provider);
-                } catch (error) { console.error("Auth failed:", error); }
+                const provider = new GoogleAuthProvider();
+                try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
             };
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
