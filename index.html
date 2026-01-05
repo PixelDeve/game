@@ -170,12 +170,12 @@
     </div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, updateDoc, serverTimestamp, deleteDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // FIXED: Using a stable, existing version of Firebase (10.13.1)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, limitToLast, setDoc, doc, updateDoc, serverTimestamp, deleteDoc, where } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
-        // CONFIGURATION
+        // CONFIGURATION - Updated with User's settings
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
             authDomain: "pixelbox-bca1b.firebaseapp.com",
@@ -189,7 +189,6 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        // Using a fixed app ID for strict path compliance
         const APP_ID = 'pixelbox_v1'; 
 
         // GAME CONSTANTS
@@ -263,13 +262,13 @@
                         removeRemotePlayer(pid);
                     }
                 });
-            });
+            }, (err) => console.error("Player sync error (Check Firestore Rules):", err));
 
             // Listen to World Changes (Block Placements/Breaks)
             const worldRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes');
-            // Only listen to recent changes to avoid loading entire history at once for this demo
-            // In a real app, you'd load base world then apply diffs. Here we just listen for new events.
-            const q = query(worldRef, orderBy('timestamp', 'desc'), limit(100));
+            // FIXED: Using limitToLast(100) and ascending order ensures we get the *correct* history timeline
+            // Old code had race conditions where breaks could be overwritten by older places.
+            const q = query(worldRef, orderBy('timestamp', 'asc'), limitToLast(100));
             
             onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
@@ -290,7 +289,7 @@
                         refreshChunk(d.x, d.z);
                     }
                 });
-            });
+            }, (err) => console.error("World sync error (Check Firestore Indexes):", err));
 
             // Listen to Chat
             const chatRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat');
