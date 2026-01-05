@@ -193,7 +193,7 @@
         const PLAYER_HEIGHT = 1.62;
         const PLAYER_RADIUS = 0.3;
         const DAY_LENGTH_SECONDS = 300; 
-        const MINE_DELAY = 400; // Slightly increased for stability
+        const MINE_DELAY = 400; 
         const MOVE_THRESHOLD = 15;
 
         let currentUser = null;
@@ -257,7 +257,8 @@
                             world[key] = d.id;
                             if (d.id === 10) activeTorches.push({x:d.x, y:d.y, z:d.z, k:key});
                         } else if (d.action === 'BREAK') {
-                            delete world[key];
+                            // Set to 0 to "hide" terrain blocks
+                            world[key] = 0;
                             if (d.prevId === 10) activeTorches = activeTorches.filter(t => t.k !== key);
                         }
                         if (running) refreshChunk(d.x, d.z);
@@ -472,9 +473,7 @@
             const hits = raycaster.intersectObjects(clickables);
             if(hits.length > 0) {
                 const h = hits[0], n = h.face.normal;
-                // For breaking, we look slightly INSIDE the block
                 const bx = Math.floor(h.point.x - n.x*0.05), by = Math.floor(h.point.y - n.y*0.05), bz = Math.floor(h.point.z - n.z*0.05);
-                // For placing, we look slightly OUTSIDE the block
                 const pbx = Math.floor(h.point.x + n.x*0.05), pby = Math.floor(h.point.y + n.y*0.05), pbz = Math.floor(h.point.z + n.z*0.05);
                 
                 if(place) {
@@ -490,7 +489,9 @@
                     const type = getBlock(bx, by, bz);
                     if(type === 0 || BLOCKS[type]?.indestructible) return false;
                     const k = `${bx},${by},${bz}`;
-                    delete world[k]; if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
+                    // Set to 0 in world to disable terrain at this spot
+                    world[k] = 0; 
+                    if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
                     refreshChunk(bx, bz);
                     broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
                 }
