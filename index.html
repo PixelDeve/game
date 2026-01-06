@@ -201,7 +201,9 @@
         blockNames.forEach((name, i) => {
             const id = i + 1;
             let tiles = [i, i, i, i, i, i];
-            if (id === 1) tiles = [3, 3, 0, 2, 3, 3]; // Grass
+            if (id === 1) tiles = [0, 0, 2, 3, 0, 0]; // Grass [Right, Left, Top, Bottom, Front, Back]
+            if (id === 2) tiles = [2, 2, 2, 2, 2, 2]; // Dirt
+            if (id === 3) tiles = [1, 1, 1, 1, 1, 1]; // Stone
             if (id === 4) tiles = [4, 4, 5, 5, 4, 4]; // Log
             if (id === 5) tiles = [6, 6, 6, 6, 6, 6]; // Leaves
             if (id === 10) tiles = [13,13,13,13,13,13]; // Torch
@@ -258,7 +260,7 @@
                     }
                     if (change.type === "removed") removeRemotePlayer(pid);
                 });
-            });
+            }, (err) => console.log(err));
 
             const worldRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes');
             const q = query(worldRef, orderBy('timestamp', 'asc'));
@@ -277,7 +279,7 @@
                         if (running) refreshChunk(d.x, d.z);
                     }
                 });
-            });
+            }, (err) => console.log(err));
 
             const chatRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat');
             const chatQ = query(chatRef, orderBy('timestamp', 'desc'), limit(20));
@@ -412,7 +414,7 @@
             };
 
             const loadImage = (url) => new Promise(resolve => {
-                const img = new Image(); img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = url;
+                const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = url;
             });
 
             for (let i = 0; i < 64; i++) {
@@ -441,19 +443,30 @@
             
             const h = Math.floor(10 + Math.sin(x*0.05 + z*0.03)*4 + Math.cos(x*0.03 - z*0.05)*3);
             
-            if (y > h && y <= h + 6) {
-                const tx = Math.floor(x/8)*8 + 4, tz = Math.floor(z/8)*8 + 4;
-                const hBase = Math.floor(10 + Math.sin(tx*0.05 + tz*0.03)*4 + Math.cos(tx*0.03 - tz*0.05)*3);
-                if (hash(tx, tz) % 20 === 0) { 
-                    const dy = y - hBase;
-                    if (x === tx && z === tz && dy > 0 && dy <= 4) return 4; 
-                    if (dy > 3 && Math.abs(x-tx) <= 2 && Math.abs(z-tz) <= 2) return 5; 
+            // Tree generation logic
+            const treeHash = hash(Math.floor(x / 8), Math.floor(z / 8));
+            const tx = Math.floor(x / 8) * 8 + 4;
+            const tz = Math.floor(z / 8) * 8 + 4;
+            const th = Math.floor(10 + Math.sin(tx * 0.05 + tz * 0.03) * 4 + Math.cos(tx * 0.03 - tz * 0.05) * 3);
+
+            if (treeHash % 5 === 0) { // Probability of a tree in this 8x8 area
+                const dy = y - th;
+                // Trunk
+                if (Math.floor(x) === tx && Math.floor(z) === tz) {
+                    if (dy > 0 && dy <= 5) return 4; // Log
+                }
+                // Leaves
+                if (dy >= 4 && dy <= 6) {
+                    const dist = Math.sqrt((x - tx)**2 + (z - tz)**2);
+                    if (dist < 2.5) return 5; // Leaves
                 }
             }
 
-            if(y < 0) return 0; if(y === 0) return 9;
-            if(y > h) return 0; if(y === h) return (h < 7) ? 6 : 1;
-            return (y > h - 3) ? 2 : 3;
+            if(y < 0) return 0; 
+            if(y === 0) return 9; // Bedrock base
+            if(y > h) return 0; 
+            if(y === h) return (h < 7) ? 6 : 1; // Grass or Sand
+            return (y > h - 3) ? 2 : 3; // Dirt or Stone
         }
 
         function buildChunk(cx, cz) {
@@ -532,7 +545,7 @@
             for(let y = Math.floor(p.y - PLAYER_HEIGHT); y <= Math.floor(p.y + 0.1); y++) {
                 for(let x = Math.floor(p.x - r); x <= Math.floor(p.x + r); x++) {
                     for(let z = Math.floor(p.z - r); z <= Math.floor(p.z + r); z++) {
-                        const b = getBlock(x, y, z); if(b !== 0 && b !== 11 && b !== 10) return true;
+                        const b = getBlock(x, y, z); if(b !== 0 && b !== 11 && b !== 10 && b !== 5) return true;
                     }
                 }
             }
@@ -551,10 +564,22 @@
         }
 
         function updatePOV() {
-            raycaster.far = (povMode === 0) ? 5 : 12;
-            if (povMode === 0) { camera.position.set(0, 0, 0); camera.rotation.y = 0; if(externalModel) externalModel.visible = false; }
-            else if (povMode === 1) { camera.position.set(0.8, 0.5, povDist); camera.rotation.y = 0; if(externalModel) externalModel.visible = true; }
-            else { camera.position.set(0, 0.5, -povDist); camera.rotation.y = Math.PI; if(externalModel) externalModel.visible = true; }
+            raycaster.far = (povMode === 0) ? 6 : 15;
+            if (povMode === 0) { 
+                camera.position.set(0, 0, 0); 
+                camera.rotation.y = 0; 
+                if(externalModel) externalModel.visible = false; 
+            }
+            else if (povMode === 1) { 
+                camera.position.set(0.8, 0.5, povDist); 
+                camera.rotation.y = 0; 
+                if(externalModel) externalModel.visible = true; 
+            }
+            else { 
+                camera.position.set(0, 0.5, -povDist); 
+                camera.rotation.y = Math.PI; 
+                if(externalModel) externalModel.visible = true; 
+            }
         }
 
         function fadeToAction(name, duration) {
@@ -598,7 +623,7 @@
                         if(t.identifier === joy.id) {
                             const dx = t.clientX - joy.sx, dy = t.clientY - joy.sy, d = Math.min(45, Math.hypot(dx,dy)), angle = Math.atan2(dy, dx);
                             joy.x = (Math.cos(angle) * d) / 45; joy.y = (Math.sin(angle) * d) / 45;
-                            nub.style.transform = `translate(${Math.cos(angle)*d - 20}px,${Math.sin(angle)*d - 20}px)`;
+                            nub.style.transform = `translate(${Math.cos(angle)*d}px,${Math.sin(angle)*d}px)`;
                         } else if(t.identifier === touchState.id) {
                             if(Math.hypot(t.clientX - touchState.sx, t.clientY - touchState.sy) > 15) { touchState.moved = true; if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; }
                             playerGroup.rotation.y -= (t.clientX - touchState.lx) * 0.008;
@@ -620,7 +645,13 @@
                 window.onkeyup = e => { keys[e.key.toLowerCase()] = 0; };
                 window.onmousedown = e => { if(!running || paused || document.activeElement.tagName === 'INPUT') return; if(e.button === 0) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } else if(e.button === 2) interact(true); };
                 window.onmouseup = e => { if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; };
-                window.onmousemove = e => { if(running && document.pointerLockElement) { playerGroup.rotation.y-=e.movementX*0.002; cameraPivot.rotation.x=Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x-e.movementY*0.002)); } };
+                window.onmousemove = e => { 
+                    if(running && document.pointerLockElement) { 
+                        playerGroup.rotation.y -= e.movementX * 0.002;
+                        cameraPivot.rotation.x = Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x - e.movementY * 0.002)); 
+                    } 
+                };
+                document.body.onclick = () => { if(running && !paused && !isTouch && !document.pointerLockElement && document.activeElement.tagName !== 'INPUT') document.body.requestPointerLock(); };
             }
         }
 
@@ -682,7 +713,9 @@
             if(checkCol(playerGroup.position)) { if(vel.y < 0) { playerGroup.position.y = Math.ceil(playerGroup.position.y - PLAYER_HEIGHT) + PLAYER_HEIGHT; vel.y = 0; onGround = true; } else { playerGroup.position.y = Math.floor(playerGroup.position.y + 0.1) - 0.1; vel.y = 0; } } else onGround = false;
             
             if(mixer) { const hv = Math.hypot(dx, dz); if(hv > 0.5) fadeToAction('Walking', 0.2); else fadeToAction('Idle', 0.2); }
-            if(headBone) headBone.rotation.x = -cameraPivot.rotation.x; 
+            if(headBone) {
+                headBone.rotation.x = -cameraPivot.rotation.x; 
+            }
 
             gameTime += dt; const angle = ((gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS) * Math.PI * 2;
             sunLight.position.set(Math.sin(angle) * 60, Math.cos(angle) * 60, 20);
