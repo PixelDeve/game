@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Voxel Pocket - 64 Blocks Edition</title>
+    <title>Voxel Pocket - Multiplayer Edition</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
@@ -84,7 +84,7 @@
         #chat-send-btn { background: #555; color: #fff; border: none; padding: 0 8px; cursor: pointer; font-family: 'Press Start 2P'; font-size: 7px; }
 
         #inventory-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; pointer-events: auto; }
-        #inventory-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; background: #8B8B8B; padding: 10px; border: 4px solid #111; max-height: 80vh; overflow-y: auto; }
+        #inventory-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; background: #8B8B8B; padding: 15px; border: 4px solid #111; max-height: 80vh; overflow-y: auto; }
         
         #pause-menu { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 3000; pointer-events: auto; }
         .menu-card { background: #8B8B8B; padding: 20px; border: 4px solid #000; display: flex; flex-direction: column; gap: 10px; width: 200px; }
@@ -92,15 +92,28 @@
 
         #loading { position: fixed; inset: 0; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
         #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
+        
+        .player-label {
+            position: absolute;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            padding: 2px 4px;
+            font-family: sans-serif;
+            font-size: 10px;
+            border-radius: 4px;
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            white-space: nowrap;
+            text-shadow: 1px 1px 0 #000;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 </head>
 <body>
     <div id="loading">
         <h1 style="font-size: 18px; text-shadow: 3px 3px #555; text-align: center;">VOXEL POCKET</h1>
-        <p id="loading-text" style="font-size: 7px; color: #aaa; margin-top: 10px;">LOADING ASSETS...</p>
+        <p id="loading-text" style="font-size: 7px; color: #aaa; margin-top: 10px;">INITIALIZING...</p>
         <button id="start-btn">ENTER WORLD (GOOGLE LOGIN)</button>
     </div>
 
@@ -150,15 +163,15 @@
     </div>
 
     <div id="inventory-overlay">
-        <div style="color: white; margin-bottom: 10px; font-size: 10px;">SELECT BLOCK (64 TYPES)</div>
+        <div style="color: white; margin-bottom: 10px; font-size: 10px;">SELECT BLOCK</div>
         <div id="inventory-grid"></div>
         <button id="close-inv" class="menu-btn" style="margin-top: 15px; width: 160px;">CLOSE</button>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
@@ -166,7 +179,8 @@
             projectId: "pixelbox-bca1b",
             storageBucket: "pixelbox-bca1b.firebasestorage.app",
             messagingSenderId: "709778027442",
-            appId: "1:709778027442:web:c2959397d3285e1f24eaab"
+            appId: "1:709778027442:web:c2959397d3285e1f24eaab",
+            measurementId: "G-8B9GQFDVY1"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -180,72 +194,123 @@
         const PLAYER_RADIUS = 0.3;
         const DAY_LENGTH_SECONDS = 300; 
         const MINE_DELAY = 400; 
+        const MOVE_THRESHOLD = 15;
 
         let currentUser = null;
         let userId = 'Guest';
         let otherPlayers = {}; 
-        let modelSource = null; 
-        let modelAnimations = null;
+        let ATLAS_COLS = 8;
+        let ATLAS_ROWS = 8;
 
-        const BLOCKS = {};
-        const blockNames = [
-            'Grass', 'Dirt', 'Stone', 'Log', 'Leaves', 'Sand', 'Planks', 'Glass', 'Bedrock', 'Torch', 'Water', 'Cobblestone',
-            'Gravel', 'Gold Ore', 'Iron Ore', 'Coal Ore', 'Diamond Ore', 'Redstone Ore', 'Lapis Ore', 'Emerald Ore',
-            'Mossy Stone', 'Obsidian', 'Snow', 'Ice', 'Cactus', 'Clay', 'Bricks', 'Bookshelf', 'Netherrack', 'Soul Sand',
-            'Glowstone', 'White Wool', 'Orange Wool', 'Magenta Wool', 'Light Blue Wool', 'Yellow Wool', 'Lime Wool', 'Pink Wool', 'Gray Wool', 'Light Gray Wool',
-            'Cyan Wool', 'Purple Wool', 'Blue Wool', 'Brown Wool', 'Green Wool', 'Red Wool', 'Black Wool', 'Gold Block', 'Iron Block', 'Diamond Block',
-            'Emerald Block', 'Quartz Block', 'Birch Log', 'Birch Leaves', 'Birch Planks', 'Spruce Log', 'Spruce Leaves', 'Spruce Planks', 'Jungle Log', 'Jungle Leaves',
-            'Jungle Planks', 'End Stone', 'Mycelium', 'Hardened Clay'
-        ];
-
-        blockNames.forEach((name, i) => {
-            const id = i + 1;
-            let tiles = [i, i, i, i, i, i];
-            if (id === 1) tiles = [0, 0, 2, 3, 0, 0]; // Grass [Right, Left, Top, Bottom, Front, Back]
-            if (id === 2) tiles = [2, 2, 2, 2, 2, 2]; // Dirt
-            if (id === 3) tiles = [1, 1, 1, 1, 1, 1]; // Stone
-            if (id === 4) tiles = [4, 4, 5, 5, 4, 4]; // Log
-            if (id === 5) tiles = [6, 6, 6, 6, 6, 6]; // Leaves
-            if (id === 10) tiles = [13,13,13,13,13,13]; // Torch
-
-            BLOCKS[id] = {
-                name: name,
-                tiles: tiles,
-                transparent: name.includes('Glass') || name.includes('Leaves') || name.includes('Water') || name.includes('Torch'),
-                isTorch: name === 'Torch',
-                indestructible: name === 'Bedrock',
-                isFluid: name === 'Water',
-                opacity: name === 'Water' ? 0.7 : 1.0
-            };
-        });
-
-        const TILE_TEXTURE_FILES = {
-            0: 'grass_top.png', 1: 'stone.png', 2: 'dirt.png', 3: 'grass_side.png', 4: 'log_side.png', 5: 'log_top.png', 
-            6: 'leaves.png', 7: 'sand.png', 9: 'planks.png', 11: 'glass.png', 12: 'bedrock.png', 13: 'torch.png', 
-            14: 'water.png', 15: 'cobblestone.png', 16: 'gravel.png'
+        const BLOCKS = {
+            // Standard
+            1: { name: 'Grass',  files: ['grass_side.png', 'grass_side.png', 'grass_top.png', 'dirt.png', 'grass_side.png', 'grass_side.png'] },
+            2: { name: 'Dirt',   files: ['dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png'] },
+            3: { name: 'Stone',  files: ['stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png'] },
+            4: { name: 'Log',    files: ['log_side.png', 'log_side.png', 'log_top.png', 'log_top.png', 'log_side.png', 'log_side.png'] },
+            5: { name: 'Leaves', files: ['leaves.png', 'leaves.png', 'leaves.png', 'leaves.png', 'leaves.png', 'leaves.png'], transparent: true },
+            6: { name: 'Sand',   files: ['sand.png', 'sand.png', 'sand.png', 'sand.png', 'sand.png', 'sand.png'] },
+            7: { name: 'Planks', files: ['planks.png', 'planks.png', 'planks.png', 'planks.png', 'planks.png', 'planks.png'] },
+            8: { name: 'Glass',  files: ['glass.png', 'glass.png', 'glass.png', 'glass.png', 'glass.png', 'glass.png'], transparent: true },
+            9: { name: 'Bedrock', files: ['bedrock.png', 'bedrock.png', 'bedrock.png', 'bedrock.png', 'bedrock.png', 'bedrock.png'], indestructible: true },
+            10: { name: 'Torch', files: ['torch.png', 'torch.png', 'torch.png', 'torch.png', 'torch.png', 'torch.png'], isTorch: true, light: 0xFFA500, transparent: true },
+            11: { name: 'Water', files: ['water.png', 'water.png', 'water.png', 'water.png', 'water.png', 'water.png'], transparent: true, isFluid: true, opacity: 0.7 },
+            
+            // Ores
+            12: { name: 'Coal Ore', files: ['coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png'] },
+            13: { name: 'Iron Ore', files: ['iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png'] },
+            14: { name: 'Gold Ore', files: ['gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png'] },
+            15: { name: 'Diamond Ore', files: ['diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png'] },
+            16: { name: 'Emerald Ore', files: ['emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png'] },
+            
+            // Stone Variants
+            17: { name: 'Cobblestone', files: ['cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png'] },
+            18: { name: 'Mossy Cobble', files: ['mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png'] },
+            19: { name: 'Stone Bricks', files: ['stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png'] },
+            20: { name: 'Obsidian', files: ['obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png'] },
+            21: { name: 'Gravel', files: ['gravel.png', 'gravel.png', 'gravel.png', 'gravel.png', 'gravel.png', 'gravel.png'] },
+            22: { name: 'Clay', files: ['clay.png', 'clay.png', 'clay.png', 'clay.png', 'clay.png', 'clay.png'] },
+            
+            // Woods
+            23: { name: 'Birch Log', files: ['birch_log.png', 'birch_log.png', 'birch_log_top.png', 'birch_log_top.png', 'birch_log.png', 'birch_log.png'] },
+            24: { name: 'Birch Planks', files: ['birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png'] },
+            25: { name: 'Spruce Log', files: ['spruce_log.png', 'spruce_log.png', 'spruce_log_top.png', 'spruce_log_top.png', 'spruce_log.png', 'spruce_log.png'] },
+            26: { name: 'Spruce Planks', files: ['spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png'] },
+            
+            // Wools
+            27: { name: 'White Wool', files: ['wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png'] },
+            28: { name: 'Red Wool', files: ['wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png'] },
+            29: { name: 'Green Wool', files: ['wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png'] },
+            30: { name: 'Blue Wool', files: ['wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png'] },
+            31: { name: 'Yellow Wool', files: ['wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png'] },
+            32: { name: 'Black Wool', files: ['wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png'] },
+            33: { name: 'Orange Wool', files: ['wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png'] },
+            
+            // Functional / Misc
+            34: { name: 'Furnace', files: ['furnace_side.png', 'furnace_side.png', 'furnace_top.png', 'furnace_top.png', 'furnace_front.png', 'furnace_side.png'] },
+            35: { name: 'Crafting Table', files: ['crafting_side.png', 'crafting_side.png', 'crafting_top.png', 'planks.png', 'crafting_side.png', 'crafting_side.png'] },
+            36: { name: 'Bookshelf', files: ['bookshelf.png', 'bookshelf.png', 'planks.png', 'planks.png', 'bookshelf.png', 'bookshelf.png'] },
+            37: { name: 'TNT', files: ['tnt_side.png', 'tnt_side.png', 'tnt_top.png', 'tnt_bottom.png', 'tnt_side.png', 'tnt_side.png'] },
+            38: { name: 'Pumpkin', files: ['pumpkin_side.png', 'pumpkin_side.png', 'pumpkin_top.png', 'pumpkin_top.png', 'pumpkin_face.png', 'pumpkin_side.png'] },
+            39: { name: 'Melon', files: ['melon_side.png', 'melon_side.png', 'melon_top.png', 'melon_top.png', 'melon_side.png', 'melon_side.png'] },
+            
+            // More Colors
+            40: { name: 'Cyan Wool', files: ['wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png'] },
+            41: { name: 'Purple Wool', files: ['wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png'] },
+            42: { name: 'Pink Wool', files: ['wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png'] },
+            43: { name: 'Lime Wool', files: ['wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png'] },
+            
+            // Nature
+            44: { name: 'Snow Block', files: ['snow.png', 'snow.png', 'snow.png', 'snow.png', 'snow.png', 'snow.png'] },
+            45: { name: 'Ice', files: ['ice.png', 'ice.png', 'ice.png', 'ice.png', 'ice.png', 'ice.png'], transparent: true, opacity: 0.6 },
+            46: { name: 'Cactus', files: ['cactus_side.png', 'cactus_side.png', 'cactus_top.png', 'cactus_bottom.png', 'cactus_side.png', 'cactus_side.png'], transparent: true },
+            47: { name: 'Mycelium', files: ['mycelium_side.png', 'mycelium_side.png', 'mycelium_top.png', 'dirt.png', 'mycelium_side.png', 'mycelium_side.png'] },
+            
+            // Nether
+            48: { name: 'Netherrack', files: ['netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png'] },
+            49: { name: 'Soul Sand', files: ['soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png'] },
+            50: { name: 'Glowstone', files: ['glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png'], light: 0xFFFFFF },
+            
+            // End
+            51: { name: 'End Stone', files: ['end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png'] },
+            
+            // Precious Blocks
+            52: { name: 'Iron Block', files: ['iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png'] },
+            53: { name: 'Gold Block', files: ['gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png'] },
+            54: { name: 'Diamond Block', files: ['diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png'] },
+            
+            // Tiles / Bricks
+            55: { name: 'Brick', files: ['brick.png', 'brick.png', 'brick.png', 'brick.png', 'brick.png', 'brick.png'] },
+            56: { name: 'Sandstone', files: ['sandstone_side.png', 'sandstone_side.png', 'sandstone_top.png', 'sandstone_bottom.png', 'sandstone_side.png', 'sandstone_side.png'] },
+            57: { name: 'Quartz', files: ['quartz_side.png', 'quartz_side.png', 'quartz_top.png', 'quartz_bottom.png', 'quartz_side.png', 'quartz_side.png'] },
+            
+            // Extra Colors
+            58: { name: 'Grey Wool', files: ['wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png'] },
+            59: { name: 'Lt Grey Wool', files: ['wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png'] },
+            60: { name: 'Magenta Wool', files: ['wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png'] },
+            61: { name: 'Light Blue Wool', files: ['wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png'] },
+            
+            // Special
+            62: { name: 'Sponge', files: ['sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png'] },
+            63: { name: 'Redstone Lamp', files: ['redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png'] },
+            64: { name: 'Hay Bale', files: ['hay_side.png', 'hay_side.png', 'hay_top.png', 'hay_top.png', 'hay_side.png', 'hay_side.png'] }
         };
 
-        let scene, camera, renderer, raycaster, atlas, sunLight, stars;
-        let playerGroup, externalModel, cameraPivot, headBone;
+        let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars;
+        let playerGroup, externalModel, cameraPivot;
         let world = {}, chunkMeshes = {}, clickables = [];
         let activeTorches = []; 
 
         let vel = new THREE.Vector3(), onGround = false, gameTime = 0, running = false, paused = false;
         let isTouch = 'ontouchstart' in window;
         let activeHotbarIndex = 0;
-        let hotbarSlots = [1, 2, 4, 5, 7, 10, 15, 31];
+        let hotbarSlots = [1, 2, 4, 12, 17, 8, 10, 35]; // Updated default hotbar
         let selectionBox;
         const keys = {}, joy = { x: 0, y: 0, id: null, sx: 0, sy: 0 };
         const touchState = { id: null, lx: 0, ly: 0, sx: 0, sy: 0, timer: null, moved: false, startTime: 0 };
 
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
-
-        function hash(x, z) { 
-            let h = (x * 374761393) ^ (z * 668265263); 
-            h = (h ^ (h >>> 13)) * 1274126177; 
-            return (h ^ (h >>> 16)) >>> 0; 
-        }
 
         function initNetwork() {
             const playersRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'players');
@@ -260,10 +325,11 @@
                     }
                     if (change.type === "removed") removeRemotePlayer(pid);
                 });
-            }, (err) => console.log(err));
+            });
 
             const worldRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes');
             const q = query(worldRef, orderBy('timestamp', 'asc'));
+            
             onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === "added") {
@@ -273,13 +339,14 @@
                             world[key] = d.id;
                             if (d.id === 10) activeTorches.push({x:d.x, y:d.y, z:d.z, k:key});
                         } else if (d.action === 'BREAK') {
+                            // Set to 0 to "hide" terrain blocks
                             world[key] = 0;
                             if (d.prevId === 10) activeTorches = activeTorches.filter(t => t.k !== key);
                         }
                         if (running) refreshChunk(d.x, d.z);
                     }
                 });
-            }, (err) => console.log(err));
+            });
 
             const chatRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat');
             const chatQ = query(chatRef, orderBy('timestamp', 'desc'), limit(20));
@@ -306,78 +373,44 @@
                 lastNetworkUpdate = now;
                 const playerRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId);
                 setDoc(playerRef, {
-                    x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z,
-                    ry: playerGroup.rotation.y, rx: cameraPivot.rotation.x,
-                    moving: Math.hypot(vel.x, vel.z) > 0.1,
-                    lastSeen: Date.now()
+                    x: playerGroup.position.x,
+                    y: playerGroup.position.y,
+                    z: playerGroup.position.z,
+                    ry: playerGroup.rotation.y,
+                    lastSeen: serverTimestamp()
                 }, { merge: true });
             }
         }
 
         function createRemotePlayer(pid, data) {
             const group = new THREE.Group();
-            let visual;
-            let remoteMixer = null;
-            let remoteActions = {};
-            let remoteHead = null;
-
-            if (modelSource) {
-                visual = THREE.SkeletonUtils.clone(modelSource);
-                visual.scale.set(0.4, 0.4, 0.4);
-                visual.position.y = -1.6;
-                remoteMixer = new THREE.AnimationMixer(visual);
-                modelAnimations.forEach(clip => {
-                    remoteActions[clip.name] = remoteMixer.clipAction(clip);
-                });
-                if (remoteActions['Idle']) remoteActions['Idle'].play();
-                visual.traverse(o => { if(o.name === 'Head') remoteHead = o; });
-            } else {
-                visual = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
-                visual.position.y = -0.8;
-            }
-            
-            group.add(visual); 
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
+            mesh.position.y = -0.8;
+            group.add(mesh);
             scene.add(group);
-            otherPlayers[pid] = { 
-                group, visual, remoteHead,
-                targetPos: new THREE.Vector3(data.x, data.y, data.z), 
-                targetRot: data.ry, targetHeadRot: data.rx || 0,
-                mixer: remoteMixer, actions: remoteActions, currentAction: 'Idle',
-                lastUpdate: Date.now()
-            };
+            otherPlayers[pid] = { group, mesh, targetPos: new THREE.Vector3(data.x, data.y, data.z), targetRot: data.ry };
             group.position.set(data.x, data.y, data.z);
         }
 
         function updateRemotePlayer(pid, data) {
-            const p = otherPlayers[pid]; if (!p) return;
-            p.targetPos.set(data.x, data.y, data.z); 
+            const p = otherPlayers[pid];
+            if (!p) return;
+            p.targetPos.set(data.x, data.y, data.z);
             p.targetRot = data.ry;
-            p.targetHeadRot = data.rx || 0;
-            p.lastUpdate = Date.now();
-            
-            const nextAction = data.moving ? 'Walking' : 'Idle';
-            if (p.actions && p.currentAction !== nextAction) {
-                const cur = p.actions[p.currentAction];
-                const next = p.actions[nextAction];
-                if (cur && next) { cur.fadeOut(0.2); next.reset().fadeIn(0.2).play(); p.currentAction = nextAction; }
-            }
         }
 
         function removeRemotePlayer(pid) {
-            if (otherPlayers[pid]) { scene.remove(otherPlayers[pid].group); delete otherPlayers[pid]; }
+            if (otherPlayers[pid]) {
+                scene.remove(otherPlayers[pid].group);
+                delete otherPlayers[pid];
+            }
         }
 
         function updateRemotePlayersVisuals(dt) {
-            const now = Date.now();
             for (let pid in otherPlayers) {
                 const p = otherPlayers[pid];
-                if (now - p.lastUpdate > 10000) { removeRemotePlayer(pid); continue; }
-                p.group.position.lerp(p.targetPos, 10 * dt);
+                p.group.position.lerp(p.targetPos, 5 * dt);
                 p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
-                if (p.remoteHead) {
-                    p.remoteHead.rotation.x = THREE.MathUtils.lerp(p.remoteHead.rotation.x, -p.targetHeadRot, 10 * dt);
-                }
-                if (p.mixer) p.mixer.update(dt);
             }
         }
 
@@ -385,97 +418,122 @@
             if (!currentUser) return;
             if (type === 'PLACE' || type === 'BREAK') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
-                    ...data, author: userId, timestamp: serverTimestamp(), action: type
+                    ...data,
+                    author: userId,
+                    timestamp: serverTimestamp(),
+                    action: type
                 });
             } else if (type === 'CHAT') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat'), {
-                    user: userId, text: data.text, timestamp: serverTimestamp()
+                    user: userId,
+                    text: data.text,
+                    timestamp: serverTimestamp()
                 });
             }
         }
 
-        function saveGame() { localStorage.setItem('voxel_prefs_v2', JSON.stringify({ hotbar: hotbarSlots, povMode })); }
+        function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
+
+        function saveGame() {
+            localStorage.setItem('voxel_prefs_v1', JSON.stringify({ hotbar: hotbarSlots, povMode }));
+        }
+
         function loadGame() {
-            const data = localStorage.getItem('voxel_prefs_v2'); if (!data) return;
-            const saved = JSON.parse(data); hotbarSlots = saved.hotbar || hotbarSlots; povMode = saved.povMode ?? 0;
+            const data = localStorage.getItem('voxel_prefs_v1');
+            if (!data) return;
+            const saved = JSON.parse(data);
+            hotbarSlots = saved.hotbar || hotbarSlots;
+            povMode = saved.povMode ?? 0;
         }
 
         async function createAtlas() {
+            const S = 32; 
+            const loader = new THREE.ImageLoader();
             const canvas = document.createElement('canvas');
-            const tileRes = 32; canvas.width = tileRes * 4; canvas.height = tileRes * 16; 
-            const ctx = canvas.getContext('2d'); const S = tileRes;
+            const ctx = canvas.getContext('2d');
+            
+            const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
+            const count = uniqueFiles.length;
+            
+            ATLAS_COLS = 8;
+            ATLAS_ROWS = Math.max(1, Math.ceil(count / ATLAS_COLS));
+            
+            canvas.width = S * ATLAS_COLS;
+            canvas.height = S * ATLAS_ROWS;
 
-            const noise = (x, y, color, intensity=0.1) => {
-                ctx.fillStyle = color; ctx.fillRect(x, y, S, S);
-                for(let i=0; i<S*S/4; i++) {
-                    ctx.fillStyle = Math.random()>0.5 ? `rgba(0,0,0,${intensity})` : `rgba(255,255,255,${intensity/2})`;
-                    ctx.fillRect(x+Math.random()*S, y+Math.random()*S, 1, 1);
-                }
+            const fileToId = {};
+            
+            const loadTile = (file, index) => {
+                return new Promise((resolve) => {
+                    loader.load(`assets/${file}`, (img) => {
+                        const tx = (index % ATLAS_COLS) * S;
+                        const ty = Math.floor(index / ATLAS_COLS) * S;
+                        ctx.drawImage(img, tx, ty, S, S);
+                        resolve();
+                    }, undefined, () => {
+                        // Fallback texture for missing files
+                        const tx = (index % ATLAS_COLS) * S;
+                        const ty = Math.floor(index / ATLAS_COLS) * S;
+                        ctx.fillStyle = '#AAAAAA';
+                        ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#FF00FF'; 
+                        ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
+                        resolve();
+                    });
+                });
             };
 
-            const loadImage = (url) => new Promise(resolve => {
-                const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = url;
+            for (let i = 0; i < count; i++) {
+                await loadTile(uniqueFiles[i], i);
+                fileToId[uniqueFiles[i]] = i;
+            }
+
+            Object.values(BLOCKS).forEach(b => {
+                if(b.files) {
+                    b.tiles = b.files.map(f => fileToId[f]);
+                }
             });
 
-            for (let i = 0; i < 64; i++) {
-                const x = (i % 4) * S, y = Math.floor(i / 4) * S;
-                const fileName = TILE_TEXTURE_FILES[i];
-                let externalImg = fileName ? await loadImage(`/assets/${fileName}`) : null;
-
-                if (externalImg) {
-                    ctx.imageSmoothingEnabled = false; ctx.drawImage(externalImg, x, y, S, S);
-                } else {
-                    const h = (i * 137) % 360, s = 40 + (i * 7) % 40, l = 40 + (i * 3) % 40;
-                    let color = `hsl(${h}, ${s}%, ${l}%)`;
-                    if (i === 0) color = '#589143'; if (i === 1) color = '#757575'; if (i === 2) color = '#70482C'; 
-                    if (i === 3) color = '#589143'; if (i === 4) color = '#503823'; if (i === 5) color = '#8B6B48'; 
-                    if (i === 6) color = '#2d5e1e'; 
-                    noise(x, y, color, 0.15);
-                }
-            }
-            const tex = new THREE.CanvasTexture(canvas); tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; 
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.NearestFilter;
             return tex;
         }
 
         function getBlock(x, y, z) {
             const k = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
             if(world[k] !== undefined) return world[k];
-            
+            if(y < 0) return 0;
+            if(y === 0) return 9;
             const h = Math.floor(10 + Math.sin(x*0.05 + z*0.03)*4 + Math.cos(x*0.03 - z*0.05)*3);
-            
-            // Tree generation logic
-            const treeHash = hash(Math.floor(x / 8), Math.floor(z / 8));
-            const tx = Math.floor(x / 8) * 8 + 4;
-            const tz = Math.floor(z / 8) * 8 + 4;
-            const th = Math.floor(10 + Math.sin(tx * 0.05 + tz * 0.03) * 4 + Math.cos(tx * 0.03 - tz * 0.05) * 3);
-
-            if (treeHash % 5 === 0) { // Probability of a tree in this 8x8 area
-                const dy = y - th;
-                // Trunk
-                if (Math.floor(x) === tx && Math.floor(z) === tz) {
-                    if (dy > 0 && dy <= 5) return 4; // Log
-                }
-                // Leaves
-                if (dy >= 4 && dy <= 6) {
-                    const dist = Math.sqrt((x - tx)**2 + (z - tz)**2);
-                    if (dist < 2.5) return 5; // Leaves
+            for (let tx = -2; tx <= 2; tx++) {
+                for (let tz = -2; tz <= 2; tz++) {
+                    const wx = Math.floor(x) - tx; const wz = Math.floor(z) - tz;
+                    const th = Math.floor(10 + Math.sin(wx*0.05 + wz*0.03)*4 + Math.cos(wx*0.03 - wz*0.05)*3);
+                    if (th >= 7 && hash(wx, wz) % 100 < 2) {
+                        const relX = Math.floor(x) - wx; const relZ = Math.floor(z) - wz; const relY = Math.floor(y) - th;
+                        if (relX === 0 && relZ === 0 && relY > 0 && relY <= 5) return 4;
+                        if (relY >= 4 && relY <= 6) {
+                            const dist = Math.abs(relX) + Math.abs(relZ) + Math.abs(relY - 5);
+                            if (dist <= 2 && !(relX === 0 && relZ === 0 && relY <= 5)) return 5;
+                        }
+                    }
                 }
             }
-
-            if(y < 0) return 0; 
-            if(y === 0) return 9; // Bedrock base
-            if(y > h) return 0; 
-            if(y === h) return (h < 7) ? 6 : 1; // Grass or Sand
-            return (y > h - 3) ? 2 : 3; // Dirt or Stone
+            if(y > h) return 0;
+            if(y === h) return (h < 7) ? 6 : 1;
+            return (y > h - 3) ? 2 : 3;
         }
 
         function buildChunk(cx, cz) {
-            const pos=[], norm=[], uv=[], color=[], idx=[]; let count = 0;
+            const pos=[], norm=[], uv=[], color=[], idx=[];
+            let count = 0;
             for(let x=0; x<CHUNK_SIZE; x++) {
                 for(let z=0; z<CHUNK_SIZE; z++) {
                     for(let y=0; y<32; y++) {
                         const wx = cx*CHUNK_SIZE+x, wz = cz*CHUNK_SIZE+z;
-                        const type = getBlock(wx, y, wz); if(type === 0) continue;
+                        const type = getBlock(wx, y, wz);
+                        if(type === 0 || !BLOCKS[type]) continue;
                         const isTorch = BLOCKS[type].isTorch;
                         const faces = [
                             { n:[1,0,0],  v:[1,0,0, 1,1,0, 1,1,1, 1,0,1], ao:0.8 },
@@ -492,11 +550,17 @@
                                 let vx = f.v[i*3], vy = f.v[i*3+1], vz = f.v[i*3+2];
                                 if(isTorch) { vx = 0.4375 + vx*0.125; vy = vy*0.625; vz = 0.4375 + vz*0.125; }
                                 pos.push(wx+vx, y+vy, wz+vz); norm.push(...f.n); 
-                                color.push(isTorch ? 1.5 : f.ao, isTorch ? 1.3 : f.ao, isTorch ? 1.0 : f.ao);
+                                if(isTorch) color.push(1.5, 1.3, 1.0); else color.push(f.ao, f.ao, f.ao);
                             }
-                            const tIdx = BLOCKS[type].tiles[fi], u = (tIdx % 4) * 0.25, v = 1 - (Math.floor(tIdx / 4) + 1) * 0.0625; 
-                            uv.push(u, v, u, v + 0.0625, u + 0.25, v + 0.0625, u + 0.25, v);
-                            idx.push(count, count+1, count+2, count, count+2, count+3); count += 4;
+                            const tIdx = BLOCKS[type].tiles[fi];
+                            const u = (tIdx % ATLAS_COLS) / ATLAS_COLS;
+                            const v = 1 - (Math.floor(tIdx / ATLAS_COLS) + 1) / ATLAS_ROWS;
+                            const uStep = 1 / ATLAS_COLS;
+                            const vStep = 1 / ATLAS_ROWS;
+                            
+                            uv.push(u, v, u, v + vStep, u + uStep, v + vStep, u + uStep, v);
+                            idx.push(count, count+1, count+2, count, count+2, count+3);
+                            count += 4;
                         });
                     }
                 }
@@ -512,9 +576,11 @@
         }
 
         function refreshChunk(wx, wz) {
-            const cx = Math.floor(wx/CHUNK_SIZE), cz = Math.floor(wz/CHUNK_SIZE), k = `${cx},${cz}`;
+            const cx = Math.floor(wx/CHUNK_SIZE), cz = Math.floor(wz/CHUNK_SIZE);
+            const k = `${cx},${cz}`;
             if(chunkMeshes[k]) { scene.remove(chunkMeshes[k]); clickables = clickables.filter(c => c !== chunkMeshes[k]); delete chunkMeshes[k]; }
-            const m = buildChunk(cx, cz); if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
+            const m = buildChunk(cx, cz);
+            if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
         }
 
         function interact(place) {
@@ -524,16 +590,25 @@
                 const h = hits[0], n = h.face.normal;
                 const bx = Math.floor(h.point.x - n.x*0.05), by = Math.floor(h.point.y - n.y*0.05), bz = Math.floor(h.point.z - n.z*0.05);
                 const pbx = Math.floor(h.point.x + n.x*0.05), pby = Math.floor(h.point.y + n.y*0.05), pbz = Math.floor(h.point.z + n.z*0.05);
+                
                 if(place) {
-                    const id = hotbarSlots[activeHotbarIndex]; if(id === 0 || getBlock(pbx, pby, pbz) !== 0) return false;
+                    const id = hotbarSlots[activeHotbarIndex];
+                    if(id === 0 || getBlock(pbx, pby, pbz) !== 0) return false;
                     const px = playerGroup.position.x, py = playerGroup.position.y, pz = playerGroup.position.z;
                     if(px + PLAYER_RADIUS > pbx && px - PLAYER_RADIUS < pbx + 1 && pz + PLAYER_RADIUS > pbz && pz - PLAYER_RADIUS < pbz + 1 && py > pby && py - PLAYER_HEIGHT < pby + 1) return false;
-                    const k = `${pbx},${pby},${pbz}`; world[k] = id; if(id === 10) activeTorches.push({x:pbx, y:pby, z:pbz, k});
-                    refreshChunk(pbx, pbz); broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
+                    const k = `${pbx},${pby},${pbz}`;
+                    world[k] = id; if(id === 10) activeTorches.push({x:pbx, y:pby, z:pbz, k});
+                    refreshChunk(pbx, pbz);
+                    broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
                 } else {
-                    const type = getBlock(bx, by, bz); if(type === 0 || BLOCKS[type]?.indestructible) return false;
-                    const k = `${bx},${by},${bz}`; world[k] = 0; if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
-                    refreshChunk(bx, bz); broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
+                    const type = getBlock(bx, by, bz);
+                    if(type === 0 || BLOCKS[type]?.indestructible) return false;
+                    const k = `${bx},${by},${bz}`;
+                    // Set to 0 in world to disable terrain at this spot
+                    world[k] = 0; 
+                    if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
+                    refreshChunk(bx, bz);
+                    broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
                 }
                 return true;
             }
@@ -545,7 +620,8 @@
             for(let y = Math.floor(p.y - PLAYER_HEIGHT); y <= Math.floor(p.y + 0.1); y++) {
                 for(let x = Math.floor(p.x - r); x <= Math.floor(p.x + r); x++) {
                     for(let z = Math.floor(p.z - r); z <= Math.floor(p.z + r); z++) {
-                        const b = getBlock(x, y, z); if(b !== 0 && b !== 11 && b !== 10 && b !== 5) return true;
+                        const b = getBlock(x, y, z);
+                        if(b !== 0 && b !== 11 && b !== 10) return true;
                     }
                 }
             }
@@ -564,68 +640,93 @@
         }
 
         function updatePOV() {
-            raycaster.far = (povMode === 0) ? 6 : 15;
-            if (povMode === 0) { 
-                camera.position.set(0, 0, 0); 
-                camera.rotation.y = 0; 
-                if(externalModel) externalModel.visible = false; 
-            }
-            else if (povMode === 1) { 
-                camera.position.set(0.8, 0.5, povDist); 
-                camera.rotation.y = 0; 
-                if(externalModel) externalModel.visible = true; 
-            }
-            else { 
-                camera.position.set(0, 0.5, -povDist); 
-                camera.rotation.y = Math.PI; 
-                if(externalModel) externalModel.visible = true; 
+            raycaster.far = (povMode === 0) ? 5 : 12;
+            if (povMode === 0) {
+                camera.position.set(0, 0, 0); camera.rotation.y = 0;
+                if(externalModel) externalModel.visible = false;
+            } else if (povMode === 1) {
+                camera.position.set(0.8, 0.5, povDist); camera.rotation.y = 0;
+                if(externalModel) externalModel.visible = true;
+            } else {
+                camera.position.set(0, 0.5, -povDist); camera.rotation.y = Math.PI;
+                if(externalModel) externalModel.visible = true;
             }
         }
 
         function fadeToAction(name, duration) {
             if (!actions[name]) return;
-            const previousAction = activeAction; activeAction = actions[name];
+            const previousAction = activeAction;
+            activeAction = actions[name];
             if (previousAction !== activeAction) {
                 if (previousAction) previousAction.fadeOut(duration);
                 activeAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(duration).play();
             }
         }
 
+        function toggleChat() {
+            const container = document.getElementById('chat-container');
+            const isOpening = container.style.display !== 'flex';
+            container.style.display = isOpening ? 'flex' : 'none';
+            if (isOpening) { document.getElementById('chat-input').focus(); if(document.pointerLockElement) document.exitPointerLock(); } 
+            else if(!isTouch && !paused) document.body.requestPointerLock();
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (text) { input.value = ''; broadcastAction('CHAT', { text }); }
+        }
+
         function setupInput() {
             document.getElementById('inv-btn').onclick = (e) => { e.stopPropagation(); toggleInventory(); };
             document.getElementById('close-inv').onclick = () => toggleInventory();
             document.getElementById('chat-toggle-btn').onclick = (e) => { e.stopPropagation(); toggleChat(); };
-            document.getElementById('chat-send-btn').onclick = (e) => { e.stopPropagation(); const inp = document.getElementById('chat-input'); if(inp.value.trim()){ broadcastAction('CHAT', {text:inp.value.trim()}); inp.value=''; }};
-            document.getElementById('pause-btn').onclick = (e) => { e.stopPropagation(); paused = true; document.getElementById('pause-menu').style.display = 'flex'; document.exitPointerLock(); };
-            document.getElementById('resume-btn').onclick = () => { paused = false; document.getElementById('pause-menu').style.display = 'none'; if(!isTouch) document.body.requestPointerLock(); };
+            document.getElementById('chat-send-btn').onclick = (e) => { e.stopPropagation(); sendChatMessage(); };
+            document.getElementById('chat-input').onkeydown = (e) => { if (e.key === 'Enter') sendChatMessage(); e.stopPropagation(); };
+
+            const pBtn = document.getElementById('pause-btn'), camBtn = document.getElementById('cam-btn'), fsBtn = document.getElementById('fs-btn'), pMenu = document.getElementById('pause-menu');
+            camBtn.onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
+            fsBtn.onclick = (e) => { e.stopPropagation(); if (!document.fullscreenElement) document.documentElement.requestFullscreen().then(() => fsBtn.innerText = "EXIT"); else document.exitFullscreen().then(() => fsBtn.innerText = "FULL"); };
+            pBtn.onclick = (e) => { e.stopPropagation(); paused = true; pMenu.style.display = 'flex'; if(document.pointerLockElement) document.exitPointerLock(); };
+            document.getElementById('resume-btn').onclick = () => { paused = false; pMenu.style.display = 'none'; if(!isTouch) document.body.requestPointerLock(); };
             document.getElementById('quit-btn').onclick = () => { saveGame(); location.reload(); };
-            document.getElementById('cam-btn').onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
 
             if(isTouch) {
                 const zone = document.getElementById('joy-zone'), nub = document.getElementById('joy-nub');
                 document.addEventListener('touchstart', e => {
+                    if (!running || paused) return;
                     for(let t of e.changedTouches) {
                         const r = zone.getBoundingClientRect();
-                        if (t.target.closest('#ui') === null) continue;
+                        if (t.target.closest('#hotbar-container') || t.target.closest('.corner-btn') || t.target.closest('#inventory-overlay') || t.target.closest('#chat-container')) continue;
                         if(Math.hypot(t.clientX-(r.left+r.width/2), t.clientY-(r.top+r.height/2)) < 60) { joy.id = t.identifier; joy.sx = t.clientX; joy.sy = t.clientY; }
-                        else if(t.target.closest('#jump-btn')) handleJumpTap();
-                        else if(t.target.closest('#up-btn')) isTouchingUp = true;
-                        else if(t.target.closest('#down-btn')) isTouchingDown = true;
+                        else if(t.target.closest('#jump-btn')) { handleJumpTap(); }
+                        else if(t.target.closest('#up-btn')) { isTouchingUp = true; }
+                        else if(t.target.closest('#down-btn')) { isTouchingDown = true; }
                         else if(touchState.id === null) {
                             touchState.id = t.identifier; touchState.lx = t.clientX; touchState.ly = t.clientY; touchState.sx = t.clientX; touchState.sy = t.clientY; 
                             touchState.startTime = Date.now(); touchState.moved = false;
-                            touchState.timer = setTimeout(() => { if(!touchState.moved) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } }, 200);
+                            touchState.timer = setTimeout(() => { 
+                                if(!touchState.moved) { 
+                                    document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
+                                    touchState.timer = setInterval(() => interact(false), MINE_DELAY); 
+                                } 
+                            }, 200);
                         }
                     }
                 });
                 document.addEventListener('touchmove', e => {
+                    if(!running) return;
                     for(let t of e.changedTouches) {
                         if(t.identifier === joy.id) {
                             const dx = t.clientX - joy.sx, dy = t.clientY - joy.sy, d = Math.min(45, Math.hypot(dx,dy)), angle = Math.atan2(dy, dx);
                             joy.x = (Math.cos(angle) * d) / 45; joy.y = (Math.sin(angle) * d) / 45;
-                            nub.style.transform = `translate(${Math.cos(angle)*d}px,${Math.sin(angle)*d}px)`;
+                            nub.style.transform = `translate(${Math.cos(angle)*d - 20}px,${Math.sin(angle)*d - 20}px)`;
                         } else if(t.identifier === touchState.id) {
-                            if(Math.hypot(t.clientX - touchState.sx, t.clientY - touchState.sy) > 15) { touchState.moved = true; if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; }
+                            if(Math.hypot(t.clientX - touchState.sx, t.clientY - touchState.sy) > MOVE_THRESHOLD) {
+                                touchState.moved = true; 
+                                if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
+                                document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)';
+                            }
                             playerGroup.rotation.y -= (t.clientX - touchState.lx) * 0.008;
                             cameraPivot.rotation.x = Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x - (t.clientY - touchState.ly) * 0.008));
                             touchState.lx = t.clientX; touchState.ly = t.clientY;
@@ -633,48 +734,69 @@
                     }
                 });
                 document.addEventListener('touchend', e => {
+                    if(!running) return;
                     for(let t of e.changedTouches) {
                         if(t.identifier === joy.id) { joy.id=null; joy.x=0; joy.y=0; nub.style.transform='translate(-50%,-50%)'; }
-                        else if(t.target.closest('#up-btn')) isTouchingUp = false;
-                        else if(t.target.closest('#down-btn')) isTouchingDown = false;
-                        else if(t.identifier === touchState.id) { if(!touchState.moved && (Date.now() - touchState.startTime) < 300) interact(true); if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; touchState.id = null; }
+                        else if(t.target.closest('#up-btn')) { isTouchingUp = false; }
+                        else if(t.target.closest('#down-btn')) { isTouchingDown = false; }
+                        else if(t.identifier === touchState.id) { 
+                            if(!touchState.moved && (Date.now() - touchState.startTime) < 300) interact(true); 
+                            if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
+                            document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)';
+                            touchState.id = null; 
+                        }
                     }
                 });
             } else {
-                window.onkeydown = e => { if (!running || document.activeElement.tagName === 'INPUT') return; keys[e.key.toLowerCase()] = 1; if(e.key===' ') handleJumpTap(); };
-                window.onkeyup = e => { keys[e.key.toLowerCase()] = 0; };
-                window.onmousedown = e => { if(!running || paused || document.activeElement.tagName === 'INPUT') return; if(e.button === 0) { document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; touchState.timer = setInterval(() => interact(false), MINE_DELAY); } else if(e.button === 2) interact(true); };
-                window.onmouseup = e => { if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; };
-                window.onmousemove = e => { 
-                    if(running && document.pointerLockElement) { 
-                        playerGroup.rotation.y -= e.movementX * 0.002;
-                        cameraPivot.rotation.x = Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x - e.movementY * 0.002)); 
-                    } 
+                window.onkeydown = e => { 
+                    if (!running || document.activeElement.tagName === 'INPUT') return; 
+                    keys[e.key.toLowerCase()] = 1; 
+                    if(e.key===' ') handleJumpTap(); 
+                    if(e.key==='Escape') { paused = !paused; pMenu.style.display = paused ? 'flex' : 'none'; } 
                 };
-                document.body.onclick = () => { if(running && !paused && !isTouch && !document.pointerLockElement && document.activeElement.tagName !== 'INPUT') document.body.requestPointerLock(); };
+                window.onkeyup = e => { if(!running) return; keys[e.key.toLowerCase()] = 0; };
+                window.onmousedown = e => { 
+                    if(!running || paused || document.activeElement.tagName === 'INPUT') return; 
+                    if(e.button === 0) { 
+                        document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
+                        if(touchState.timer) clearInterval(touchState.timer);
+                        touchState.timer = setInterval(() => interact(false), MINE_DELAY); 
+                    } else if(e.button === 2) {
+                        interact(true); 
+                    }
+                };
+                window.onmouseup = e => { 
+                    if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } 
+                    document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; 
+                };
+                window.oncontextmenu = e => e.preventDefault();
+                window.onmousemove = e => { 
+                    if(!running) return; 
+                    if(document.pointerLockElement) { 
+                        playerGroup.rotation.y-=e.movementX*0.002; 
+                        cameraPivot.rotation.x=Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x-e.movementY*0.002)); 
+                    }
+                };
             }
         }
 
-        function toggleChat() {
-            const container = document.getElementById('chat-container');
-            const isOpening = container.style.display !== 'flex'; container.style.display = isOpening ? 'flex' : 'none';
-            if (isOpening) { document.getElementById('chat-input').focus(); document.exitPointerLock(); } 
-            else if(!isTouch && !paused) document.body.requestPointerLock();
-        }
-
         function toggleInventory() {
-            const overlay = document.getElementById('inventory-overlay'); const isOpening = overlay.style.display !== 'flex'; 
+            const overlay = document.getElementById('inventory-overlay');
+            const isOpening = overlay.style.display !== 'flex';
             overlay.style.display = isOpening ? 'flex' : 'none';
             if(isOpening) {
                 const grid = document.getElementById('inventory-grid'); grid.innerHTML = '';
                 Object.keys(BLOCKS).forEach(id => {
                     const blockId = parseInt(id); const item = document.createElement('div'); item.className = 'slot';
-                    const c = document.createElement('canvas'); c.width=32; c.height=32; const t = BLOCKS[blockId].tiles[2]; const ctx = c.getContext('2d');
-                    ctx.drawImage(atlas.image, (t % 4) * 32, Math.floor(t / 4) * 32, 32, 32, 0, 0, 32, 32);
+                    const c = document.createElement('canvas'); c.width=32; c.height=32;
+                    const t = BLOCKS[blockId].tiles[4]; const ctx = c.getContext('2d');
+                    const tx = (t % ATLAS_COLS) * 32;
+                    const ty = Math.floor(t / ATLAS_COLS) * 32;
+                    ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 32, 32);
                     item.appendChild(c); item.onclick = () => { hotbarSlots[activeHotbarIndex] = blockId; updateUI(); toggleInventory(); };
                     grid.appendChild(item);
                 });
-                document.exitPointerLock();
+                if(document.pointerLockElement) document.exitPointerLock();
             } else if(!isTouch && !paused) document.body.requestPointerLock();
         }
 
@@ -683,7 +805,13 @@
             hotbarSlots.forEach((id, i) => {
                 const s = document.createElement('div'); s.className = 'slot' + (i === activeHotbarIndex ? ' active' : '');
                 const c = document.createElement('canvas'); c.width=24; c.height=24;
-                if(id > 0) { const t = BLOCKS[id].tiles[2]; const ctx = c.getContext('2d'); ctx.drawImage(atlas.image, (t % 4) * 32, Math.floor(t / 4) * 32, 32, 32, 0, 0, 24, 24); }
+                if(id > 0) { 
+                    const t = BLOCKS[id].tiles[4]; 
+                    const ctx = c.getContext('2d'); 
+                    const tx = (t % ATLAS_COLS) * 32;
+                    const ty = Math.floor(t / ATLAS_COLS) * 32;
+                    ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 24, 24); 
+                }
                 s.appendChild(c); s.onclick = (e) => { e.stopPropagation(); activeHotbarIndex = i; updateUI(); }; slots.appendChild(s);
             });
         }
@@ -698,74 +826,80 @@
         }
 
         function animate() {
-            if(!running) return; requestAnimationFrame(animate);
-            if(paused || document.getElementById('inventory-overlay').style.display === 'flex') { renderer.render(scene, camera); return; }
+            if(!running) return;
+            requestAnimationFrame(animate);
+            if(paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex') { renderer.render(scene, camera); return; }
             const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
             if(mixer) mixer.update(dt);
-            if(isFlying) { let flyVel = 0; if (keys[' '] || isTouchingUp) flyVel += 1; if (keys['shift'] || isTouchingDown) flyVel -= 1; vel.y = flyVel * 10; } else vel.y -= 24 * dt;
+            if(isFlying) { let flyVel = 0; if (keys[' '] || isTouchingUp) flyVel += 1; if (keys['shift'] || isTouchingDown) flyVel -= 1; vel.y = flyVel * 10; } else { vel.y -= 24 * dt; }
             const r = playerGroup.rotation.y, speed = isFlying ? 12 : 5.5; 
             let mx=0, mz=0; if(isTouch) { mx=joy.x; mz=joy.y; } else { if(keys.w)mz=-1; if(keys.s)mz=1; if(keys.a)mx=-1; if(keys.d)mx=1; }
             const dx = (Math.sin(r)*mz + Math.cos(r)*mx) * speed, dz = (Math.cos(r)*mz - Math.sin(r)*mx) * speed;
-            vel.x = dx; vel.z = dz;
             const ox = playerGroup.position.x; playerGroup.position.x += dx*dt; if(checkCol(playerGroup.position)) playerGroup.position.x = ox;
             const oz = playerGroup.position.z; playerGroup.position.z += dz*dt; if(checkCol(playerGroup.position)) playerGroup.position.z = oz;
             playerGroup.position.y += vel.y*dt;
             if(checkCol(playerGroup.position)) { if(vel.y < 0) { playerGroup.position.y = Math.ceil(playerGroup.position.y - PLAYER_HEIGHT) + PLAYER_HEIGHT; vel.y = 0; onGround = true; } else { playerGroup.position.y = Math.floor(playerGroup.position.y + 0.1) - 0.1; vel.y = 0; } } else onGround = false;
-            
             if(mixer) { const hv = Math.hypot(dx, dz); if(hv > 0.5) fadeToAction('Walking', 0.2); else fadeToAction('Idle', 0.2); }
-            if(headBone) {
-                headBone.rotation.x = -cameraPivot.rotation.x; 
-            }
-
+            if(externalModel) externalModel.position.y = -1.6;
             gameTime += dt; const angle = ((gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS) * Math.PI * 2;
             sunLight.position.set(Math.sin(angle) * 60, Math.cos(angle) * 60, 20);
-            scene.background = Math.cos(angle) > 0 ? new THREE.Color(0x87CEEB) : new THREE.Color(0x0a0a1a);
-            stars.material.opacity = Math.cos(angle) < 0 ? 1 : 0;
-            
+            const skyColor = Math.cos(angle) > 0 ? new THREE.Color(0x87CEEB) : new THREE.Color(0x0a0a1a);
+            scene.background = skyColor; scene.fog.color = skyColor; stars.material.opacity = Math.cos(angle) < 0 ? 1 : 0;
             raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
             if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
-            
             updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld(); renderer.render(scene, camera);
         }
 
         async function startGame(user) {
-            currentUser = user; userId = user.uid;
+            currentUser = user;
+            userId = user.uid;
             document.getElementById('user-display-id').innerText = userId.substr(0, 8);
             document.getElementById('loading').style.display = 'none';
-            loadGame(); initNetwork();
+            loadGame();
+            initNetwork();
             playerGroup.position.set(0.5, 32, 0.5);
             for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
-            running = true; updatePOV();
-            if(!isTouch) document.body.requestPointerLock(); else document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
-            updateWorld(); animate();
+            running = true;
+            updatePOV();
+            if(!isTouch) document.body.requestPointerLock();
+            else document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
+            updateWorld();
+            animate();
         }
 
         async function init() {
             atlas = await createAtlas();
             scene = new THREE.Scene(); scene.fog = new THREE.Fog(0x87CEEB, 15, 45);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
-            cameraPivot = new THREE.Group(); cameraPivot.position.y = 0; playerGroup.add(cameraPivot);
+            cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6)); scene.add(sunLight = new THREE.DirectionalLight(0xffffff, 0.8));
-            raycaster = new THREE.Raycaster(); selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 })); scene.add(selectionBox); 
-            
+            scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); scene.add(sunLight = new THREE.DirectionalLight(0xffffff, 0.8));
+            raycaster = new THREE.Raycaster(); selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
+            scene.add(selectionBox); 
             new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
-                modelSource = gltf.scene; modelAnimations = gltf.animations;
-                externalModel = THREE.SkeletonUtils.clone(modelSource); externalModel.scale.set(0.4, 0.4, 0.4); 
-                externalModel.position.y = -1.6; playerGroup.add(externalModel);
-                mixer = new THREE.AnimationMixer(externalModel); 
-                gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
-                externalModel.traverse(o => { if(o.name === 'Head') headBone = o; });
+                externalModel = gltf.scene; externalModel.scale.set(0.4, 0.4, 0.4); playerGroup.add(externalModel);
+                mixer = new THREE.AnimationMixer(externalModel); gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
                 if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
-                document.getElementById('loading-text').innerText = 'READY';
-                onAuthStateChanged(auth, (user) => { if (user) startGame(user); else document.getElementById('start-btn').style.display = 'block'; });
+                document.getElementById('loading-text').innerText = 'CHECKING AUTH...';
+                setPersistence(auth, browserLocalPersistence).then(() => {
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) startGame(user);
+                        else { document.getElementById('loading-text').innerText = 'READY TO CONNECT'; document.getElementById('start-btn').style.display = 'block'; }
+                    });
+                });
+            }, undefined, () => {
+                externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x00ff00})); playerGroup.add(externalModel); 
+                document.getElementById('start-btn').style.display = 'block';
             });
-
+            clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
             const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
             setupInput(); updateUI();
-            document.getElementById('start-btn').onclick = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { console.error(e); } };
+            document.getElementById('start-btn').onclick = async () => {
+                const provider = new GoogleAuthProvider();
+                try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
+            };
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
         let last = performance.now(); init();
