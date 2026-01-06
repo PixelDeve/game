@@ -92,20 +92,6 @@
 
         #loading { position: fixed; inset: 0; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
         #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
-        
-        .player-label {
-            position: absolute;
-            background: rgba(0,0,0,0.5);
-            color: white;
-            padding: 2px 4px;
-            font-family: sans-serif;
-            font-size: 10px;
-            border-radius: 4px;
-            pointer-events: none;
-            transform: translate(-50%, -100%);
-            white-space: nowrap;
-            text-shadow: 1px 1px 0 #000;
-        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -171,8 +157,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
@@ -180,8 +166,7 @@
             projectId: "pixelbox-bca1b",
             storageBucket: "pixelbox-bca1b.firebasestorage.app",
             messagingSenderId: "709778027442",
-            appId: "1:709778027442:web:c2959397d3285e1f24eaab",
-            measurementId: "G-8B9GQFDVY1"
+            appId: "1:709778027442:web:c2959397d3285e1f24eaab"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -199,7 +184,7 @@
         let currentUser = null;
         let userId = 'Guest';
         let otherPlayers = {}; 
-        let modelSource = null; // Stored GLTF scene for cloning
+        let modelSource = null; 
         let modelAnimations = null;
 
         const BLOCKS = {};
@@ -218,6 +203,7 @@
             let tiles = [i, i, i, i, i, i];
             if (id === 1) tiles = [3, 3, 0, 2, 3, 3]; // Grass
             if (id === 4) tiles = [4, 4, 5, 5, 4, 4]; // Log
+            if (id === 5) tiles = [6, 6, 6, 6, 6, 6]; // Leaves
             if (id === 10) tiles = [13,13,13,13,13,13]; // Torch
 
             BLOCKS[id] = {
@@ -233,35 +219,31 @@
 
         const TILE_TEXTURE_FILES = {
             0: 'grass_top.png', 1: 'stone.png', 2: 'dirt.png', 3: 'grass_side.png', 4: 'log_side.png', 5: 'log_top.png', 
-            6: 'leaves.png', 7: 'sand.png', 8: 'sand.png', 9: 'planks.png', 10: 'planks.png', 11: 'glass.png', 
-            12: 'bedrock.png', 13: 'torch.png', 14: 'water.png', 15: 'cobblestone.png', 16: 'gravel.png', 
-            17: 'gold_ore.png', 18: 'iron_ore.png', 19: 'coal_ore.png', 20: 'diamond_ore.png', 21: 'redstone_ore.png', 
-            22: 'lapis_ore.png', 23: 'emerald_ore.png', 24: 'mossy_stone.png', 25: 'obsidian.png', 26: 'snow.png', 
-            27: 'ice.png', 28: 'cactus.png', 29: 'clay.png', 30: 'bricks.png', 31: 'bookshelf.png', 32: 'netherrack.png', 
-            33: 'soul_sand.png', 34: 'glowstone.png', 35: 'wool_white.png', 36: 'wool_orange.png', 37: 'wool_magenta.png', 
-            38: 'wool_light_blue.png', 39: 'wool_yellow.png', 40: 'wool_lime.png', 41: 'wool_pink.png', 42: 'wool_gray.png', 
-            43: 'wool_light_gray.png', 44: 'wool_cyan.png', 45: 'wool_purple.png', 46: 'wool_blue.png', 47: 'wool_brown.png', 
-            48: 'wool_green.png', 49: 'wool_red.png', 50: 'wool_black.png', 51: 'gold_block.png', 52: 'iron_block.png', 
-            53: 'diamond_block.png', 54: 'emerald_block.png', 55: 'quartz_block.png', 56: 'log_birch_side.png', 
-            57: 'leaves_birch.png', 58: 'planks_birch.png', 59: 'log_spruce_side.png', 60: 'leaves_spruce.png', 
-            61: 'planks_spruce.png', 62: 'log_jungle_side.png', 63: 'leaves_jungle.png'
+            6: 'leaves.png', 7: 'sand.png', 9: 'planks.png', 11: 'glass.png', 12: 'bedrock.png', 13: 'torch.png', 
+            14: 'water.png', 15: 'cobblestone.png', 16: 'gravel.png'
         };
 
-        let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars;
-        let playerGroup, externalModel, cameraPivot;
+        let scene, camera, renderer, raycaster, atlas, sunLight, stars;
+        let playerGroup, externalModel, cameraPivot, headBone;
         let world = {}, chunkMeshes = {}, clickables = [];
         let activeTorches = []; 
 
         let vel = new THREE.Vector3(), onGround = false, gameTime = 0, running = false, paused = false;
         let isTouch = 'ontouchstart' in window;
         let activeHotbarIndex = 0;
-        let hotbarSlots = [1, 2, 3, 4, 7, 10, 17, 31];
+        let hotbarSlots = [1, 2, 4, 5, 7, 10, 15, 31];
         let selectionBox;
         const keys = {}, joy = { x: 0, y: 0, id: null, sx: 0, sy: 0 };
         const touchState = { id: null, lx: 0, ly: 0, sx: 0, sy: 0, timer: null, moved: false, startTime: 0 };
 
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
+
+        function hash(x, z) { 
+            let h = (x * 374761393) ^ (z * 668265263); 
+            h = (h ^ (h >>> 13)) * 1274126177; 
+            return (h ^ (h >>> 16)) >>> 0; 
+        }
 
         function initNetwork() {
             const playersRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'players');
@@ -323,9 +305,9 @@
                 const playerRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId);
                 setDoc(playerRef, {
                     x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z,
-                    ry: playerGroup.rotation.y, 
+                    ry: playerGroup.rotation.y, rx: cameraPivot.rotation.x,
                     moving: Math.hypot(vel.x, vel.z) > 0.1,
-                    lastSeen: serverTimestamp()
+                    lastSeen: Date.now()
                 }, { merge: true });
             }
         }
@@ -335,9 +317,9 @@
             let visual;
             let remoteMixer = null;
             let remoteActions = {};
+            let remoteHead = null;
 
             if (modelSource) {
-                // Properly clone rigged model
                 visual = THREE.SkeletonUtils.clone(modelSource);
                 visual.scale.set(0.4, 0.4, 0.4);
                 visual.position.y = -1.6;
@@ -346,6 +328,7 @@
                     remoteActions[clip.name] = remoteMixer.clipAction(clip);
                 });
                 if (remoteActions['Idle']) remoteActions['Idle'].play();
+                visual.traverse(o => { if(o.name === 'Head') remoteHead = o; });
             } else {
                 visual = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
                 visual.position.y = -0.8;
@@ -354,13 +337,11 @@
             group.add(visual); 
             scene.add(group);
             otherPlayers[pid] = { 
-                group, 
-                visual, 
+                group, visual, remoteHead,
                 targetPos: new THREE.Vector3(data.x, data.y, data.z), 
-                targetRot: data.ry,
-                mixer: remoteMixer,
-                actions: remoteActions,
-                currentAction: 'Idle'
+                targetRot: data.ry, targetHeadRot: data.rx || 0,
+                mixer: remoteMixer, actions: remoteActions, currentAction: 'Idle',
+                lastUpdate: Date.now()
             };
             group.position.set(data.x, data.y, data.z);
         }
@@ -369,17 +350,14 @@
             const p = otherPlayers[pid]; if (!p) return;
             p.targetPos.set(data.x, data.y, data.z); 
             p.targetRot = data.ry;
+            p.targetHeadRot = data.rx || 0;
+            p.lastUpdate = Date.now();
             
-            // Handle remote animation switching
             const nextAction = data.moving ? 'Walking' : 'Idle';
             if (p.actions && p.currentAction !== nextAction) {
                 const cur = p.actions[p.currentAction];
                 const next = p.actions[nextAction];
-                if (cur && next) {
-                    cur.fadeOut(0.2);
-                    next.reset().fadeIn(0.2).play();
-                    p.currentAction = nextAction;
-                }
+                if (cur && next) { cur.fadeOut(0.2); next.reset().fadeIn(0.2).play(); p.currentAction = nextAction; }
             }
         }
 
@@ -388,10 +366,15 @@
         }
 
         function updateRemotePlayersVisuals(dt) {
+            const now = Date.now();
             for (let pid in otherPlayers) {
                 const p = otherPlayers[pid];
+                if (now - p.lastUpdate > 10000) { removeRemotePlayer(pid); continue; }
                 p.group.position.lerp(p.targetPos, 10 * dt);
                 p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
+                if (p.remoteHead) {
+                    p.remoteHead.rotation.x = THREE.MathUtils.lerp(p.remoteHead.rotation.x, -p.targetHeadRot, 10 * dt);
+                }
                 if (p.mixer) p.mixer.update(dt);
             }
         }
@@ -408,8 +391,6 @@
                 });
             }
         }
-
-        function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
 
         function saveGame() { localStorage.setItem('voxel_prefs_v2', JSON.stringify({ hotbar: hotbarSlots, povMode })); }
         function loadGame() {
@@ -446,6 +427,7 @@
                     let color = `hsl(${h}, ${s}%, ${l}%)`;
                     if (i === 0) color = '#589143'; if (i === 1) color = '#757575'; if (i === 2) color = '#70482C'; 
                     if (i === 3) color = '#589143'; if (i === 4) color = '#503823'; if (i === 5) color = '#8B6B48'; 
+                    if (i === 6) color = '#2d5e1e'; 
                     noise(x, y, color, 0.15);
                 }
             }
@@ -456,8 +438,20 @@
         function getBlock(x, y, z) {
             const k = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
             if(world[k] !== undefined) return world[k];
-            if(y < 0) return 0; if(y === 0) return 9;
+            
             const h = Math.floor(10 + Math.sin(x*0.05 + z*0.03)*4 + Math.cos(x*0.03 - z*0.05)*3);
+            
+            if (y > h && y <= h + 6) {
+                const tx = Math.floor(x/8)*8 + 4, tz = Math.floor(z/8)*8 + 4;
+                const hBase = Math.floor(10 + Math.sin(tx*0.05 + tz*0.03)*4 + Math.cos(tx*0.03 - tz*0.05)*3);
+                if (hash(tx, tz) % 20 === 0) { 
+                    const dy = y - hBase;
+                    if (x === tx && z === tz && dy > 0 && dy <= 4) return 4; 
+                    if (dy > 3 && Math.abs(x-tx) <= 2 && Math.abs(z-tz) <= 2) return 5; 
+                }
+            }
+
+            if(y < 0) return 0; if(y === 0) return 9;
             if(y > h) return 0; if(y === h) return (h < 7) ? 6 : 1;
             return (y > h - 3) ? 2 : 3;
         }
@@ -572,24 +566,15 @@
             }
         }
 
-        function toggleChat() {
-            const container = document.getElementById('chat-container');
-            const isOpening = container.style.display !== 'flex'; container.style.display = isOpening ? 'flex' : 'none';
-            if (isOpening) { document.getElementById('chat-input').focus(); if(document.pointerLockElement) document.exitPointerLock(); } 
-            else if(!isTouch && !paused) document.body.requestPointerLock();
-        }
-
         function setupInput() {
             document.getElementById('inv-btn').onclick = (e) => { e.stopPropagation(); toggleInventory(); };
             document.getElementById('close-inv').onclick = () => toggleInventory();
             document.getElementById('chat-toggle-btn').onclick = (e) => { e.stopPropagation(); toggleChat(); };
             document.getElementById('chat-send-btn').onclick = (e) => { e.stopPropagation(); const inp = document.getElementById('chat-input'); if(inp.value.trim()){ broadcastAction('CHAT', {text:inp.value.trim()}); inp.value=''; }};
-            const pBtn = document.getElementById('pause-btn'), camBtn = document.getElementById('cam-btn'), fsBtn = document.getElementById('fs-btn');
-            camBtn.onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
-            fsBtn.onclick = (e) => { e.stopPropagation(); if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
-            pBtn.onclick = (e) => { e.stopPropagation(); paused = true; document.getElementById('pause-menu').style.display = 'flex'; if(document.pointerLockElement) document.exitPointerLock(); };
+            document.getElementById('pause-btn').onclick = (e) => { e.stopPropagation(); paused = true; document.getElementById('pause-menu').style.display = 'flex'; document.exitPointerLock(); };
             document.getElementById('resume-btn').onclick = () => { paused = false; document.getElementById('pause-menu').style.display = 'none'; if(!isTouch) document.body.requestPointerLock(); };
             document.getElementById('quit-btn').onclick = () => { saveGame(); location.reload(); };
+            document.getElementById('cam-btn').onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
 
             if(isTouch) {
                 const zone = document.getElementById('joy-zone'), nub = document.getElementById('joy-nub');
@@ -639,6 +624,13 @@
             }
         }
 
+        function toggleChat() {
+            const container = document.getElementById('chat-container');
+            const isOpening = container.style.display !== 'flex'; container.style.display = isOpening ? 'flex' : 'none';
+            if (isOpening) { document.getElementById('chat-input').focus(); document.exitPointerLock(); } 
+            else if(!isTouch && !paused) document.body.requestPointerLock();
+        }
+
         function toggleInventory() {
             const overlay = document.getElementById('inventory-overlay'); const isOpening = overlay.style.display !== 'flex'; 
             overlay.style.display = isOpening ? 'flex' : 'none';
@@ -651,7 +643,7 @@
                     item.appendChild(c); item.onclick = () => { hotbarSlots[activeHotbarIndex] = blockId; updateUI(); toggleInventory(); };
                     grid.appendChild(item);
                 });
-                if(document.pointerLockElement) document.exitPointerLock();
+                document.exitPointerLock();
             } else if(!isTouch && !paused) document.body.requestPointerLock();
         }
 
@@ -688,14 +680,18 @@
             const oz = playerGroup.position.z; playerGroup.position.z += dz*dt; if(checkCol(playerGroup.position)) playerGroup.position.z = oz;
             playerGroup.position.y += vel.y*dt;
             if(checkCol(playerGroup.position)) { if(vel.y < 0) { playerGroup.position.y = Math.ceil(playerGroup.position.y - PLAYER_HEIGHT) + PLAYER_HEIGHT; vel.y = 0; onGround = true; } else { playerGroup.position.y = Math.floor(playerGroup.position.y + 0.1) - 0.1; vel.y = 0; } } else onGround = false;
+            
             if(mixer) { const hv = Math.hypot(dx, dz); if(hv > 0.5) fadeToAction('Walking', 0.2); else fadeToAction('Idle', 0.2); }
-            if(externalModel) externalModel.position.y = -1.6;
+            if(headBone) headBone.rotation.x = -cameraPivot.rotation.x; 
+
             gameTime += dt; const angle = ((gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS) * Math.PI * 2;
             sunLight.position.set(Math.sin(angle) * 60, Math.cos(angle) * 60, 20);
             scene.background = Math.cos(angle) > 0 ? new THREE.Color(0x87CEEB) : new THREE.Color(0x0a0a1a);
             stars.material.opacity = Math.cos(angle) < 0 ? 1 : 0;
+            
             raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
             if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
+            
             updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld(); renderer.render(scene, camera);
         }
 
@@ -715,22 +711,21 @@
             atlas = await createAtlas();
             scene = new THREE.Scene(); scene.fog = new THREE.Fog(0x87CEEB, 15, 45);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
-            cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
+            cameraPivot = new THREE.Group(); cameraPivot.position.y = 0; playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
-            scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); scene.add(sunLight = new THREE.DirectionalLight(0xffffff, 0.8));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6)); scene.add(sunLight = new THREE.DirectionalLight(0xffffff, 0.8));
             raycaster = new THREE.Raycaster(); selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 })); scene.add(selectionBox); 
             
             new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
-                modelSource = gltf.scene;
-                modelAnimations = gltf.animations;
-                externalModel = THREE.SkeletonUtils.clone(modelSource); 
-                externalModel.scale.set(0.4, 0.4, 0.4); 
-                playerGroup.add(externalModel);
+                modelSource = gltf.scene; modelAnimations = gltf.animations;
+                externalModel = THREE.SkeletonUtils.clone(modelSource); externalModel.scale.set(0.4, 0.4, 0.4); 
+                externalModel.position.y = -1.6; playerGroup.add(externalModel);
                 mixer = new THREE.AnimationMixer(externalModel); 
                 gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                externalModel.traverse(o => { if(o.name === 'Head') headBone = o; });
                 if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
-                document.getElementById('loading-text').innerText = 'READY TO CONNECT';
+                document.getElementById('loading-text').innerText = 'READY';
                 onAuthStateChanged(auth, (user) => { if (user) startGame(user); else document.getElementById('start-btn').style.display = 'block'; });
             });
 
