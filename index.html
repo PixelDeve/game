@@ -448,13 +448,14 @@
 
         async function createAtlas() {
             const S = 32; 
-            const loader = new THREE.ImageLoader();
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             
+            // Get all unique files from BLOCKS
             const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
             const count = uniqueFiles.length;
             
+            // Calculate atlas size
             ATLAS_COLS = 8;
             ATLAS_ROWS = Math.max(1, Math.ceil(count / ATLAS_COLS));
             
@@ -463,23 +464,29 @@
 
             const fileToId = {};
             
+            // UPDATED: More robust image loader with explicit error logging
             const loadTile = (file, index) => {
                 return new Promise((resolve) => {
-                    loader.load(`assets/${file}`, (img) => {
+                    const img = new Image();
+                    img.crossOrigin = "Anonymous"; // Helps with some local server config issues
+                    img.onload = () => {
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
                         ctx.drawImage(img, tx, ty, S, S);
                         resolve();
-                    }, undefined, () => {
-                        // Fallback texture for missing files
+                    };
+                    img.onerror = () => {
+                        console.warn(`MISSING TEXTURE: assets/${file}`);
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
-                        ctx.fillStyle = '#AAAAAA';
+                        // Fallback: White with pink center
+                        ctx.fillStyle = '#FFFFFF';
                         ctx.fillRect(tx, ty, S, S);
                         ctx.fillStyle = '#FF00FF'; 
                         ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
                         resolve();
-                    });
+                    };
+                    img.src = `assets/${file}`;
                 });
             };
 
@@ -906,4 +913,5 @@
     </script>
 </body>
 </html>
+
 
