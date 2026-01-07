@@ -92,23 +92,10 @@
 
         #loading { position: fixed; inset: 0; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
         #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
-        
-        .player-label {
-            position: absolute;
-            background: rgba(0,0,0,0.5);
-            color: white;
-            padding: 2px 4px;
-            font-family: sans-serif;
-            font-size: 10px;
-            border-radius: 4px;
-            pointer-events: none;
-            transform: translate(-50%, -100%);
-            white-space: nowrap;
-            text-shadow: 1px 1px 0 #000;
-        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 </head>
 <body>
     <div id="loading">
@@ -171,7 +158,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
@@ -198,6 +185,7 @@
 
         let currentUser = null;
         let userId = 'Guest';
+        let userDisplayName = 'Guest';
         let otherPlayers = {}; 
         let ATLAS_COLS = 8;
         let ATLAS_ROWS = 8;
@@ -270,7 +258,7 @@
         };
 
         let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars;
-        let playerGroup, externalModel, cameraPivot;
+        let playerGroup, externalModel, cameraPivot, modelLoaded = false;
         let world = {}, chunkMeshes = {}, clickables = [];
         let activeTorches = []; 
 
@@ -284,6 +272,38 @@
 
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
+
+        function makeTextSprite(message) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 512;
+            canvas.height = 128;
+            
+            context.font = "Bold 40px sans-serif";
+            context.fillStyle = "rgba(0,0,0,0.5)";
+            const metrics = context.measureText(message);
+            const textWidth = metrics.width;
+            
+            // Draw background pill
+            context.beginPath();
+            context.roundRect(256 - textWidth/2 - 15, 40, textWidth + 30, 50, 10);
+            context.fill();
+            
+            // Draw text
+            context.textAlign = "center";
+            context.textBaseline = "middle";
+            context.fillStyle = "white";
+            context.strokeStyle = "black";
+            context.lineWidth = 4;
+            context.strokeText(message, 256, 65);
+            context.fillText(message, 256, 65);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.scale.set(2, 0.5, 1);
+            return sprite;
+        }
 
         function initNetwork() {
             const playersRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'players');
@@ -335,6 +355,12 @@
                 });
                 log.scrollTop = log.scrollHeight;
             });
+
+            window.addEventListener('beforeunload', () => {
+                if (currentUser) {
+                    deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId));
+                }
+            });
         }
 
         let lastNetworkUpdate = 0;
@@ -349,6 +375,8 @@
                     y: playerGroup.position.y,
                     z: playerGroup.position.z,
                     ry: playerGroup.rotation.y,
+                    name: userDisplayName,
+                    moving: Math.hypot(vel.x || 0, vel.z || 0) > 0.1,
                     lastSeen: serverTimestamp()
                 }, { merge: true });
             }
@@ -356,11 +384,42 @@
 
         function createRemotePlayer(pid, data) {
             const group = new THREE.Group();
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
-            mesh.position.y = -0.8;
-            group.add(mesh);
+            let model;
+            let pMixer, pActions = {};
+
+            if (modelLoaded && externalModel) {
+                model = SkeletonUtils.clone(externalModel);
+                model.position.y = -1.6;
+                group.add(model);
+                
+                pMixer = new THREE.AnimationMixer(model);
+                const originalAnimations = externalModel.animations || [];
+                originalAnimations.forEach(clip => {
+                    pActions[clip.name] = pMixer.clipAction(clip);
+                });
+                if(pActions['Idle']) pActions['Idle'].play();
+            } else {
+                model = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
+                model.position.y = -0.8;
+                group.add(model);
+            }
+
+            // Create Name Tag
+            const nameTag = makeTextSprite(data.name || pid.substr(0, 8));
+            nameTag.position.y = 0.5; // Above the robot head
+            group.add(nameTag);
+
             scene.add(group);
-            otherPlayers[pid] = { group, mesh, targetPos: new THREE.Vector3(data.x, data.y, data.z), targetRot: data.ry };
+            otherPlayers[pid] = { 
+                group, 
+                model, 
+                nameTag,
+                mixer: pMixer, 
+                actions: pActions,
+                currentAction: 'Idle',
+                targetPos: new THREE.Vector3(data.x, data.y, data.z), 
+                targetRot: data.ry 
+            };
             group.position.set(data.x, data.y, data.z);
         }
 
@@ -369,11 +428,29 @@
             if (!p) return;
             p.targetPos.set(data.x, data.y, data.z);
             p.targetRot = data.ry;
+            
+            if (p.mixer) {
+                const isMoving = data.moving || p.targetPos.distanceTo(p.group.position) > 0.05;
+                const nextAction = isMoving ? 'Walking' : 'Idle';
+                if (p.currentAction !== nextAction) {
+                    if (p.actions[p.currentAction]) p.actions[p.currentAction].fadeOut(0.2);
+                    if (p.actions[nextAction]) p.actions[nextAction].reset().fadeIn(0.2).play();
+                    p.currentAction = nextAction;
+                }
+            }
         }
 
         function removeRemotePlayer(pid) {
             if (otherPlayers[pid]) {
-                scene.remove(otherPlayers[pid].group);
+                const p = otherPlayers[pid];
+                scene.remove(p.group);
+                p.group.traverse(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                        else child.material.dispose();
+                    }
+                });
                 delete otherPlayers[pid];
             }
         }
@@ -381,8 +458,9 @@
         function updateRemotePlayersVisuals(dt) {
             for (let pid in otherPlayers) {
                 const p = otherPlayers[pid];
-                p.group.position.lerp(p.targetPos, 5 * dt);
+                p.group.position.lerp(p.targetPos, 10 * dt);
                 p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
+                if (p.mixer) p.mixer.update(dt);
             }
         }
 
@@ -397,7 +475,7 @@
                 });
             } else if (type === 'CHAT') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat'), {
-                    user: userId,
+                    user: userDisplayName,
                     text: data.text,
                     timestamp: serverTimestamp()
                 });
@@ -445,7 +523,6 @@
                         resolve();
                     };
                     img.onerror = () => {
-                        console.warn(`MISSING TEXTURE: assets/${file}`);
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
                         ctx.fillStyle = '#FFFFFF';
@@ -454,7 +531,6 @@
                         ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
                         resolve();
                     };
-                    // Use URL constructor to ensure relative paths work regardless of base URL
                     img.src = new URL(`./assets/${file}`, window.location.href).href;
                 });
             };
@@ -828,7 +904,8 @@
         async function startGame(user) {
             currentUser = user;
             userId = user.uid;
-            document.getElementById('user-display-id').innerText = userId.substr(0, 8);
+            userDisplayName = user.displayName || user.email.split('@')[0] || userId.substr(0, 8);
+            document.getElementById('user-display-id').innerText = userDisplayName;
             document.getElementById('loading').style.display = 'none';
             loadGame();
             initNetwork();
@@ -853,9 +930,16 @@
             raycaster = new THREE.Raycaster(); selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
             scene.add(selectionBox); 
             new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
-                externalModel = gltf.scene; externalModel.scale.set(0.4, 0.4, 0.4); playerGroup.add(externalModel);
-                mixer = new THREE.AnimationMixer(externalModel); gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                externalModel = gltf.scene; 
+                externalModel.animations = gltf.animations;
+                externalModel.scale.set(0.4, 0.4, 0.4); 
+                playerGroup.add(externalModel);
+                modelLoaded = true;
+
+                mixer = new THREE.AnimationMixer(externalModel); 
+                gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
                 if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
+                
                 document.getElementById('loading-text').innerText = 'CHECKING AUTH...';
                 setPersistence(auth, browserLocalPersistence).then(() => {
                     onAuthStateChanged(auth, (user) => {
