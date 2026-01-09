@@ -190,26 +190,25 @@
         let ATLAS_COLS = 8;
         let ATLAS_ROWS = 8;
 
-        // Using standard Minecraft Texture URLs where possible for "Minecraft feel"
         const BLOCKS = {
-            1: { name: 'Grass',  files: ['https://static.wikia.nocookie.net/minecraft_gamepedia/images/c/c5/Grass_Block_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/c/c5/Grass_Block_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/4/4b/Grass_Block_Top.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/2/2f/Dirt.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/c/c5/Grass_Block_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/c/c5/Grass_Block_Side.png'] },
-            2: { name: 'Dirt',   files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/2/2f/Dirt.png') },
-            3: { name: 'Stone',  files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/d/d4/Stone.png') },
-            4: { name: 'Log',    files: ['https://static.wikia.nocookie.net/minecraft_gamepedia/images/d/df/Oak_Log_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/d/df/Oak_Log_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/b/b5/Oak_Log_Top.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/b/b5/Oak_Log_Top.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/d/df/Oak_Log_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/d/df/Oak_Log_Side.png'] },
-            5: { name: 'Leaves', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/a/a3/Oak_Leaves.png'), transparent: true },
-            6: { name: 'Sand',   files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/1/1b/Sand.png') },
-            7: { name: 'Planks', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/c/c1/Oak_Planks.png') },
-            8: { name: 'Glass',  files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/0/07/Glass.png'), transparent: true },
-            9: { name: 'Bedrock', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/9/90/Bedrock.png'), indestructible: true },
-            10: { name: 'Torch', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/c/ce/Torch.png'), isTorch: true, light: 0xFFA500, transparent: true },
-            11: { name: 'Water', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/1/11/Water_Still.png'), transparent: true, isFluid: true, opacity: 0.7 },
-            12: { name: 'Coal Ore', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/a/a2/Coal_Ore.png') },
-            13: { name: 'Iron Ore', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/2/23/Iron_Ore.png') },
-            14: { name: 'Gold Ore', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/d/d3/Gold_Ore.png') },
-            15: { name: 'Diamond Ore', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/3/30/Diamond_Ore.png') },
-            16: { name: 'Cobblestone', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/1/12/Cobblestone.png') },
-            17: { name: 'TNT', files: ['https://static.wikia.nocookie.net/minecraft_gamepedia/images/2/2e/TNT_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/2/2e/TNT_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/c/cc/TNT_Top.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/1/1f/TNT_Bottom.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/2/2e/TNT_Side.png', 'https://static.wikia.nocookie.net/minecraft_gamepedia/images/2/2e/TNT_Side.png'] },
-            18: { name: 'Brick', files: Array(6).fill('https://static.wikia.nocookie.net/minecraft_gamepedia/images/4/4b/Bricks.png') }
+            1: { name: 'Grass',  files: ['assets/grass_side.png', 'assets/grass_side.png', 'assets/grass_top.png', 'assets/dirt.png', 'assets/grass_side.png', 'assets/grass_side.png'] },
+            2: { name: 'Dirt',   files: Array(6).fill('assets/dirt.png') },
+            3: { name: 'Stone',  files: Array(6).fill('assets/stone.png') },
+            4: { name: 'Log',    files: ['assets/log_side.png', 'assets/log_side.png', 'assets/log_top.png', 'assets/log_top.png', 'assets/log_side.png', 'assets/log_side.png'] },
+            5: { name: 'Leaves', files: Array(6).fill('assets/leaves.png'), transparent: true },
+            6: { name: 'Sand',   files: Array(6).fill('assets/sand.png') },
+            7: { name: 'Planks', files: Array(6).fill('assets/planks.png') },
+            8: { name: 'Glass',  files: Array(6).fill('assets/glass.png'), transparent: true },
+            9: { name: 'Bedrock', files: Array(6).fill('assets/bedrock.png'), indestructible: true },
+            10: { name: 'Torch', files: Array(6).fill('assets/torch.png'), isTorch: true, light: 0xFFA500, transparent: true },
+            11: { name: 'Water', files: Array(6).fill('assets/water.png'), transparent: true, isFluid: true, opacity: 0.7 },
+            12: { name: 'Coal Ore', files: Array(6).fill('assets/coal_ore.png') },
+            13: { name: 'Iron Ore', files: Array(6).fill('assets/iron_ore.png') },
+            14: { name: 'Gold Ore', files: Array(6).fill('assets/gold_ore.png') },
+            15: { name: 'Diamond Ore', files: Array(6).fill('assets/diamond_ore.png') },
+            16: { name: 'Cobblestone', files: Array(6).fill('assets/cobblestone.png') },
+            17: { name: 'TNT', files: ['assets/tnt_side.png', 'assets/tnt_side.png', 'assets/tnt_top.png', 'assets/tnt_bottom.png', 'assets/tnt_side.png', 'assets/tnt_side.png'] },
+            18: { name: 'Brick', files: Array(6).fill('assets/brick.png') }
         };
 
         let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars, sunObject, moonObject;
@@ -371,15 +370,6 @@
             }
         }
 
-        function updateRemotePlayersVisuals(dt) {
-            for (let pid in otherPlayers) {
-                const p = otherPlayers[pid];
-                p.group.position.lerp(p.targetPos, 10 * dt);
-                p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
-                if (p.mixer) p.mixer.update(dt);
-            }
-        }
-
         function broadcastAction(type, data) { 
             if (!currentUser) return;
             if (type === 'PLACE' || type === 'BREAK') {
@@ -500,7 +490,7 @@
                     refreshChunk(pbx, pbz); broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
                 } else {
                     const type = getBlock(bx, by, bz); if(type === 0 || BLOCKS[type]?.indestructible) return false;
-                    const k = `${bx},${by},${bz}`; world[k] = 0; if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
+                    const k = `${bx},${bz},${bz}`; world[k] = 0; if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
                     refreshChunk(bx, bz); broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
                 }
                 return true;
@@ -679,7 +669,6 @@
             const cycle = (gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS;
             const angle = cycle * Math.PI * 2;
             
-            // Orbits
             const dist = 80;
             sunObject.position.set(Math.sin(angle) * dist, Math.cos(angle) * dist, 0);
             moonObject.position.set(Math.sin(angle + Math.PI) * dist, Math.cos(angle + Math.PI) * dist, 0);
@@ -687,7 +676,6 @@
             sunLight.intensity = Math.max(0, Math.cos(angle)) * 1.0;
             ambientLight.intensity = 0.3 + Math.max(0, Math.cos(angle)) * 0.4;
 
-            // Sky Color Interpolation
             const dayColor = new THREE.Color(0x78A7FF);
             const sunsetColor = new THREE.Color(0xFF704D);
             const nightColor = new THREE.Color(0x050510);
@@ -752,7 +740,6 @@
             const d = 40; sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d; sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
             scene.add(sunLight);
 
-            // Sun/Moon Visuals
             const sunGeo = new THREE.PlaneGeometry(8, 8);
             const sunMat = new THREE.MeshBasicMaterial({ color: 0xFFFF00, side: THREE.DoubleSide });
             sunObject = new THREE.Mesh(sunGeo, sunMat); scene.add(sunObject);
@@ -765,7 +752,7 @@
             
             new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
                 externalModel = gltf.scene; externalModel.animations = gltf.animations; externalModel.scale.set(0.4, 0.4, 0.4); 
-                externalModel.rotation.y = Math.PI; // Backward Fix
+                externalModel.rotation.y = Math.PI;
                 externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); playerGroup.add(externalModel);
                 modelLoaded = true; mixer = new THREE.AnimationMixer(externalModel); 
                 gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
