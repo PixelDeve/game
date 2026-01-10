@@ -35,7 +35,15 @@
         #chat-toggle-btn { left: 52px; }
         #fs-btn { right: 52px; } 
         #cam-btn { right: 10px; }
+        #shop-btn { top: 52px; left: 10px; width: 78px; font-size: 8px; background: #DAA520; color: #000; }
+        
         .corner-btn:active { transform: translateY(2px); box-shadow: none; }
+
+        #coin-display {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.6); border: 2px solid #DAA520; color: #FFD700;
+            padding: 8px 15px; font-size: 10px; z-index: 90; text-shadow: 1px 1px #000;
+        }
 
         #hotbar-container {
             position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
@@ -49,6 +57,7 @@
         }
         .slot.active { border-color: #FFF; background: #AAA; z-index: 2; transform: scale(1.05); box-shadow: 0 0 8px white; }
         .slot canvas { width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
+        .slot-count { position: absolute; bottom: 2px; right: 2px; font-size: 8px; color: #fff; text-shadow: 1px 1px #000; pointer-events: none; }
         
         #inv-btn {
             width: 34px; height: 34px; background: #8B8B8B; border: 3px solid #111; color: #fff;
@@ -74,7 +83,7 @@
         .action-btn svg { width: 24px; height: 24px; fill: white; opacity: 0.8; }
 
         #chat-container {
-            position: fixed; top: 55px; left: 10px; width: 240px; height: 180px;
+            position: fixed; top: 95px; left: 10px; width: 240px; height: 140px;
             display: none; flex-direction: column; z-index: 2500; pointer-events: auto;
         }
         #chat-header { background: rgba(0,0,0,0.8); color: #0f0; padding: 4px; font-size: 6px; border-bottom: 2px solid #333; }
@@ -83,8 +92,8 @@
         #chat-input { flex-grow: 1; background: transparent; border: none; color: #fff; padding: 8px; font-family: 'Press Start 2P'; font-size: 7px; outline: none; width: 50%; }
         #chat-send-btn { background: #555; color: #fff; border: none; padding: 0 8px; cursor: pointer; font-family: 'Press Start 2P'; font-size: 7px; }
 
-        #inventory-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; pointer-events: auto; }
-        #inventory-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; background: #8B8B8B; padding: 15px; border: 4px solid #111; max-height: 80vh; overflow-y: auto; }
+        #inventory-overlay, #shop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; pointer-events: auto; }
+        #inventory-grid, #shop-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; background: #8B8B8B; padding: 15px; border: 4px solid #111; max-height: 70vh; overflow-y: auto; }
         
         #pause-menu { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 3000; pointer-events: auto; }
         .menu-card { background: #8B8B8B; padding: 20px; border: 4px solid #000; display: flex; flex-direction: column; gap: 10px; width: 200px; }
@@ -92,6 +101,15 @@
 
         #loading { position: fixed; inset: 0; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
         #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
+        
+        #del-mode-btn { background: #a33; margin-top: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; }
+        .shop-item { width: 50px; height: 60px; background: #555; border: 2px solid #000; display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 2px; }
+        .shop-item:hover { background: #666; }
+        .shop-price { font-size: 6px; color: #FFD700; margin-top: 2px; text-align: center; }
+        .shop-name { font-size: 5px; color: #fff; margin-bottom: 2px; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; }
+        .shop-tabs { display: flex; gap: 5px; margin-bottom: 10px; }
+        .shop-tab { padding: 8px; background: #555; color: white; border: 2px solid #000; font-size: 8px; cursor: pointer; }
+        .shop-tab.active { background: #DAA520; color: black; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -105,6 +123,7 @@
     </div>
 
     <div id="ui">
+        <div id="coin-display">COINS: 0</div>
         <div id="crosshair"></div>
         <div id="break-progress"></div>
         
@@ -112,6 +131,7 @@
         <div id="chat-toggle-btn" class="corner-btn ctrl">MSG</div>
         <div id="fs-btn" class="corner-btn ctrl">FULL</div>
         <div id="cam-btn" class="corner-btn ctrl">POV</div>
+        <div id="shop-btn" class="corner-btn ctrl">SHOP</div>
 
         <div id="chat-container">
             <div id="chat-header">ID: <span id="user-display-id">...</span></div>
@@ -150,15 +170,28 @@
     </div>
 
     <div id="inventory-overlay">
-        <div style="color: white; margin-bottom: 10px; font-size: 10px;">SELECT BLOCK</div>
+        <div style="color: white; margin-bottom: 10px; font-size: 10px;">INVENTORY</div>
         <div id="inventory-grid"></div>
+        <button id="del-mode-btn">DELETE MODE: OFF</button>
         <button id="close-inv" class="menu-btn" style="margin-top: 15px; width: 160px;">CLOSE</button>
+    </div>
+
+    <div id="shop-overlay">
+        <div style="color: #DAA520; margin-bottom: 5px; font-size: 10px;">ITEM SHOP</div>
+        <div style="color: #888; margin-bottom: 10px; font-size: 6px;">L-CLICK: BUY | R-CLICK: SELL</div>
+        <div class="shop-tabs">
+            <div class="shop-tab active" onclick="switchShopTab('blocks')">BLOCKS</div>
+            <div class="shop-tab" onclick="switchShopTab('tools')">TOOLS</div>
+            <div class="shop-tab" onclick="switchShopTab('skins')">SKINS</div>
+        </div>
+        <div id="shop-grid"></div>
+        <button id="close-shop" class="menu-btn" style="margin-top: 15px; width: 160px;">CLOSE</button>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
@@ -180,7 +213,8 @@
         const PLAYER_HEIGHT = 1.62;
         const PLAYER_RADIUS = 0.3;
         const DAY_LENGTH_SECONDS = 300; 
-        const MINE_DELAY = 400; 
+        
+        let currentMineDelay = 400; 
         const MOVE_THRESHOLD = 15;
 
         let currentUser = null;
@@ -189,72 +223,94 @@
         let otherPlayers = {}; 
         let ATLAS_COLS = 8;
         let ATLAS_ROWS = 8;
+        
+        let coins = 0;
+        let inventory = new Array(30).fill(null); 
+        let deleteMode = false;
+        let landClaims = {}; 
+        let currentSkin = 'default';
+        let activeTool = null;
+
+        const TOOLS = {
+            1001: { name: 'Wood Pick', tier: 1, price: 50, speedMod: 0.7, icon: 'wood_pick.png' },
+            1002: { name: 'Stone Pick', tier: 2, price: 150, speedMod: 0.5, icon: 'stone_pick.png' },
+            1003: { name: 'Iron Pick', tier: 3, price: 500, speedMod: 0.3, icon: 'iron_pick.png' },
+            1004: { name: 'Diamond Pick', tier: 4, price: 1000, speedMod: 0.1, icon: 'diamond_pick.png' }
+        };
+
+        const SKINS = {
+            'default': { name: 'Robot', price: 0, file: 'RobotExpressive.glb' },
+            'blue': { name: 'Blue Bot', price: 200, file: 'RobotExpressive.glb', color: 0x0000ff },
+            'red': { name: 'Red Bot', price: 200, file: 'RobotExpressive.glb', color: 0xff0000 },
+            'gold': { name: 'Gold Bot', price: 1000, file: 'RobotExpressive.glb', color: 0xFFD700 }
+        };
 
         const BLOCKS = {
-            1: { name: 'Grass',  files: ['grass_side.png', 'grass_side.png', 'grass_top.png', 'dirt.png', 'grass_side.png', 'grass_side.png'] },
-            2: { name: 'Dirt',   files: ['dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png'] },
-            3: { name: 'Stone',  files: ['stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png'] },
-            4: { name: 'Log',    files: ['log_side.png', 'log_side.png', 'log_top.png', 'log_top.png', 'log_side.png', 'log_side.png'] },
-            5: { name: 'Leaves', files: ['leaves.png', 'leaves.png', 'leaves.png', 'leaves.png', 'leaves.png', 'leaves.png'], transparent: true },
-            6: { name: 'Sand',   files: ['sand.png', 'sand.png', 'sand.png', 'sand.png', 'sand.png', 'sand.png'] },
-            7: { name: 'Planks', files: ['planks.png', 'planks.png', 'planks.png', 'planks.png', 'planks.png', 'planks.png'] },
-            8: { name: 'Glass',  files: ['glass.png', 'glass.png', 'glass.png', 'glass.png', 'glass.png', 'glass.png'], transparent: true },
+            1: { name: 'Grass', price: 4, sellPrice: 1, files: ['grass_side.png', 'grass_side.png', 'grass_top.png', 'dirt.png', 'grass_side.png', 'grass_side.png'], hardness: 0.6 },
+            2: { name: 'Dirt', price: 2, sellPrice: 1, files: ['dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png'], hardness: 0.5 },
+            3: { name: 'Stone', price: 5, sellPrice: 2, files: ['stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png'], hardness: 1.5 },
+            4: { name: 'Log', price: 5, sellPrice: 2, files: ['log_side.png', 'log_side.png', 'log_top.png', 'log_top.png', 'log_side.png', 'log_side.png'], hardness: 2.0 },
+            5: { name: 'Leaves', price: 2, sellPrice: 1, files: ['leaves.png', 'leaves.png', 'leaves.png', 'leaves.png', 'leaves.png', 'leaves.png'], transparent: true, hardness: 0.2 },
+            6: { name: 'Sand', price: 2, sellPrice: 1, files: ['sand.png', 'sand.png', 'sand.png', 'sand.png', 'sand.png', 'sand.png'], hardness: 0.5 },
+            7: { name: 'Planks', price: 4, sellPrice: 1, files: ['planks.png', 'planks.png', 'planks.png', 'planks.png', 'planks.png', 'planks.png'], hardness: 2.0 },
+            8: { name: 'Glass', price: 6, sellPrice: 2, files: ['glass.png', 'glass.png', 'glass.png', 'glass.png', 'glass.png', 'glass.png'], transparent: true, hardness: 0.3 },
             9: { name: 'Bedrock', files: ['bedrock.png', 'bedrock.png', 'bedrock.png', 'bedrock.png', 'bedrock.png', 'bedrock.png'], indestructible: true },
-            10: { name: 'Torch', files: ['torch.png', 'torch.png', 'torch.png', 'torch.png', 'torch.png', 'torch.png'], isTorch: true, light: 0xFFA500, transparent: true },
+            10: { name: 'Torch', price: 5, sellPrice: 1, files: ['torch.png', 'torch.png', 'torch.png', 'torch.png', 'torch.png', 'torch.png'], isTorch: true, light: 0xFFA500, transparent: true, hardness: 0.1 },
             11: { name: 'Water', files: ['water.png', 'water.png', 'water.png', 'water.png', 'water.png', 'water.png'], transparent: true, isFluid: true, opacity: 0.7 },
-            12: { name: 'Coal Ore', files: ['coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png'] },
-            13: { name: 'Iron Ore', files: ['iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png'] },
-            14: { name: 'Gold Ore', files: ['gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png'] },
-            15: { name: 'Diamond Ore', files: ['diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png'] },
-            16: { name: 'Emerald Ore', files: ['emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png'] },
-            17: { name: 'Cobblestone', files: ['cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png'] },
-            18: { name: 'Mossy Cobble', files: ['mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png'] },
-            19: { name: 'Stone Bricks', files: ['stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png'] },
-            20: { name: 'Obsidian', files: ['obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png'] },
-            21: { name: 'Gravel', files: ['gravel.png', 'gravel.png', 'gravel.png', 'gravel.png', 'gravel.png', 'gravel.png'] },
-            22: { name: 'Clay', files: ['clay.png', 'clay.png', 'clay.png', 'clay.png', 'clay.png', 'clay.png'] },
-            23: { name: 'Birch Log', files: ['birch_log.png', 'birch_log.png', 'birch_log_top.png', 'birch_log_top.png', 'birch_log.png', 'birch_log.png'] },
-            24: { name: 'Birch Planks', files: ['birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png'] },
-            25: { name: 'Spruce Log', files: ['spruce_log.png', 'spruce_log.png', 'spruce_log_top.png', 'spruce_log_top.png', 'spruce_log.png', 'spruce_log.png'] },
-            26: { name: 'Spruce Planks', files: ['spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png'] },
-            27: { name: 'White Wool', files: ['wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png'] },
-            28: { name: 'Red Wool', files: ['wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png'] },
-            29: { name: 'Green Wool', files: ['wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png'] },
-            30: { name: 'Blue Wool', files: ['wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png'] },
-            31: { name: 'Yellow Wool', files: ['wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png'] },
-            32: { name: 'Black Wool', files: ['wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png'] },
-            33: { name: 'Orange Wool', files: ['wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png'] },
-            34: { name: 'Furnace', files: ['furnace_side.png', 'furnace_side.png', 'furnace_top.png', 'furnace_top.png', 'furnace_front.png', 'furnace_side.png'] },
-            35: { name: 'Crafting Table', files: ['crafting_side.png', 'crafting_side.png', 'crafting_top.png', 'planks.png', 'crafting_side.png', 'crafting_side.png'] },
-            36: { name: 'Bookshelf', files: ['bookshelf.png', 'bookshelf.png', 'planks.png', 'planks.png', 'bookshelf.png', 'bookshelf.png'] },
-            37: { name: 'TNT', files: ['tnt_side.png', 'tnt_side.png', 'tnt_top.png', 'tnt_bottom.png', 'tnt_side.png', 'tnt_side.png'] },
-            38: { name: 'Pumpkin', files: ['pumpkin_side.png', 'pumpkin_side.png', 'pumpkin_top.png', 'pumpkin_top.png', 'pumpkin_face.png', 'pumpkin_side.png'] },
-            39: { name: 'Melon', files: ['melon_side.png', 'melon_side.png', 'melon_top.png', 'melon_top.png', 'melon_side.png', 'melon_side.png'] },
-            40: { name: 'Cyan Wool', files: ['wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png'] },
-            41: { name: 'Purple Wool', files: ['wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png'] },
-            42: { name: 'Pink Wool', files: ['wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png'] },
-            43: { name: 'Lime Wool', files: ['wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png'] },
-            44: { name: 'Snow Block', files: ['snow.png', 'snow.png', 'snow.png', 'snow.png', 'snow.png', 'snow.png'] },
-            45: { name: 'Ice', files: ['ice.png', 'ice.png', 'ice.png', 'ice.png', 'ice.png', 'ice.png'], transparent: true, opacity: 0.6 },
-            46: { name: 'Cactus', files: ['cactus_side.png', 'cactus_side.png', 'cactus_top.png', 'cactus_bottom.png', 'cactus_side.png', 'cactus_side.png'], transparent: true },
-            47: { name: 'Mycelium', files: ['mycelium_side.png', 'mycelium_side.png', 'mycelium_top.png', 'dirt.png', 'mycelium_side.png', 'mycelium_side.png'] },
-            48: { name: 'Netherrack', files: ['netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png'] },
-            49: { name: 'Soul Sand', files: ['soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png'] },
-            50: { name: 'Glowstone', files: ['glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png'], light: 0xFFFFFF },
-            51: { name: 'End Stone', files: ['end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png'] },
-            52: { name: 'Iron Block', files: ['iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png'] },
-            53: { name: 'Gold Block', files: ['gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png'] },
-            54: { name: 'Diamond Block', files: ['diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png'] },
-            55: { name: 'Brick', files: ['brick.png', 'brick.png', 'brick.png', 'brick.png', 'brick.png', 'brick.png'] },
-            56: { name: 'Sandstone', files: ['sandstone_side.png', 'sandstone_side.png', 'sandstone_top.png', 'sandstone_bottom.png', 'sandstone_side.png', 'sandstone_side.png'] },
-            57: { name: 'Quartz', files: ['quartz_side.png', 'quartz_side.png', 'quartz_top.png', 'quartz_bottom.png', 'quartz_side.png', 'quartz_side.png'] },
-            58: { name: 'Grey Wool', files: ['wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png'] },
-            59: { name: 'Lt Grey Wool', files: ['wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png'] },
-            60: { name: 'Magenta Wool', files: ['wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png'] },
-            61: { name: 'Light Blue Wool', files: ['wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png'] },
-            62: { name: 'Sponge', files: ['sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png'] },
-            63: { name: 'Redstone Lamp', files: ['redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png'] },
-            64: { name: 'Hay Bale', files: ['hay_side.png', 'hay_side.png', 'hay_top.png', 'hay_top.png', 'hay_side.png', 'hay_side.png'] }
+            12: { name: 'Coal Ore', price: 10, sellPrice: 3, files: ['coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png', 'coal_ore.png'], hardness: 3.0 },
+            13: { name: 'Iron Ore', price: 15, sellPrice: 4, files: ['iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png', 'iron_ore.png'], hardness: 3.0 },
+            14: { name: 'Gold Ore', price: 20, sellPrice: 5, files: ['gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png', 'gold_ore.png'], hardness: 3.0 },
+            15: { name: 'Diamond Ore', price: 30, sellPrice: 6, files: ['diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png', 'diamond_ore.png'], hardness: 4.0 },
+            16: { name: 'Emerald Ore', price: 30, sellPrice: 8, files: ['emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png', 'emerald_ore.png'], hardness: 3.0 },
+            17: { name: 'Cobblestone', price: 3, sellPrice: 1, files: ['cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png', 'cobblestone.png'], hardness: 2.0 },
+            18: { name: 'Mossy Cobble', price: 4, sellPrice: 1, files: ['mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png', 'mossy_cobblestone.png'], hardness: 2.0 },
+            19: { name: 'Stone Bricks', price: 4, sellPrice: 1, files: ['stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png', 'stone_bricks.png'], hardness: 1.5 },
+            20: { name: 'Obsidian', price: 40, sellPrice: 10, files: ['obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png', 'obsidian.png'], hardness: 10.0 },
+            21: { name: 'Gravel', price: 2, sellPrice: 1, files: ['gravel.png', 'gravel.png', 'gravel.png', 'gravel.png', 'gravel.png', 'gravel.png'], hardness: 0.6 },
+            22: { name: 'Clay', price: 4, sellPrice: 2, files: ['clay.png', 'clay.png', 'clay.png', 'clay.png', 'clay.png', 'clay.png'], hardness: 0.6 },
+            23: { name: 'Birch Log', price: 5, sellPrice: 2, files: ['birch_log.png', 'birch_log.png', 'birch_log_top.png', 'birch_log_top.png', 'birch_log.png', 'birch_log.png'], hardness: 2.0 },
+            24: { name: 'Birch Planks', price: 4, sellPrice: 1, files: ['birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png', 'birch_planks.png'], hardness: 2.0 },
+            25: { name: 'Spruce Log', price: 5, sellPrice: 2, files: ['spruce_log.png', 'spruce_log.png', 'spruce_log_top.png', 'spruce_log_top.png', 'spruce_log.png', 'spruce_log.png'], hardness: 2.0 },
+            26: { name: 'Spruce Planks', price: 4, sellPrice: 1, files: ['spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png', 'spruce_planks.png'], hardness: 2.0 },
+            27: { name: 'White Wool', price: 6, sellPrice: 2, files: ['wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png', 'wool_white.png'], hardness: 0.8 },
+            28: { name: 'Red Wool', price: 6, sellPrice: 2, files: ['wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png', 'wool_red.png'], hardness: 0.8 },
+            29: { name: 'Green Wool', price: 6, sellPrice: 2, files: ['wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png', 'wool_green.png'], hardness: 0.8 },
+            30: { name: 'Blue Wool', price: 6, sellPrice: 2, files: ['wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png', 'wool_blue.png'], hardness: 0.8 },
+            31: { name: 'Yellow Wool', price: 6, sellPrice: 2, files: ['wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png', 'wool_yellow.png'], hardness: 0.8 },
+            32: { name: 'Black Wool', price: 6, sellPrice: 2, files: ['wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png', 'wool_black.png'], hardness: 0.8 },
+            33: { name: 'Orange Wool', price: 6, sellPrice: 2, files: ['wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png', 'wool_orange.png'], hardness: 0.8 },
+            34: { name: 'Furnace', price: 16, sellPrice: 4, files: ['furnace_side.png', 'furnace_side.png', 'furnace_top.png', 'furnace_top.png', 'furnace_front.png', 'furnace_side.png'], hardness: 3.5 },
+            35: { name: 'Crafting Table', price: 10, sellPrice: 3, files: ['crafting_side.png', 'crafting_side.png', 'crafting_top.png', 'planks.png', 'crafting_side.png', 'crafting_side.png'], hardness: 2.5 },
+            36: { name: 'Bookshelf', price: 15, sellPrice: 4, files: ['bookshelf.png', 'bookshelf.png', 'planks.png', 'planks.png', 'bookshelf.png', 'bookshelf.png'], hardness: 1.5 },
+            37: { name: 'TNT', price: 50, sellPrice: 10, files: ['tnt_side.png', 'tnt_side.png', 'tnt_top.png', 'tnt_bottom.png', 'tnt_side.png', 'tnt_side.png'], hardness: 0.0 },
+            38: { name: 'Pumpkin', price: 8, sellPrice: 2, files: ['pumpkin_side.png', 'pumpkin_side.png', 'pumpkin_top.png', 'pumpkin_top.png', 'pumpkin_face.png', 'pumpkin_side.png'], hardness: 1.0 },
+            39: { name: 'Melon', price: 8, sellPrice: 2, files: ['melon_side.png', 'melon_side.png', 'melon_top.png', 'melon_top.png', 'melon_side.png', 'melon_side.png'], hardness: 1.0 },
+            40: { name: 'Cyan Wool', price: 6, sellPrice: 2, files: ['wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png', 'wool_cyan.png'], hardness: 0.8 },
+            41: { name: 'Purple Wool', price: 6, sellPrice: 2, files: ['wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png', 'wool_purple.png'], hardness: 0.8 },
+            42: { name: 'Pink Wool', price: 6, sellPrice: 2, files: ['wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png', 'wool_pink.png'], hardness: 0.8 },
+            43: { name: 'Lime Wool', price: 6, sellPrice: 2, files: ['wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png', 'wool_lime.png'], hardness: 0.8 },
+            44: { name: 'Snow Block', price: 2, sellPrice: 1, files: ['snow.png', 'snow.png', 'snow.png', 'snow.png', 'snow.png', 'snow.png'], hardness: 0.2 },
+            45: { name: 'Ice', price: 4, sellPrice: 1, files: ['ice.png', 'ice.png', 'ice.png', 'ice.png', 'ice.png', 'ice.png'], transparent: true, opacity: 0.6, hardness: 0.5 },
+            46: { name: 'Cactus', price: 4, sellPrice: 1, files: ['cactus_side.png', 'cactus_side.png', 'cactus_top.png', 'cactus_bottom.png', 'cactus_side.png', 'cactus_side.png'], transparent: true, hardness: 0.4 },
+            47: { name: 'Mycelium', price: 4, sellPrice: 1, files: ['mycelium_side.png', 'mycelium_side.png', 'mycelium_top.png', 'dirt.png', 'mycelium_side.png', 'mycelium_side.png'], hardness: 0.6 },
+            48: { name: 'Netherrack', price: 2, sellPrice: 1, files: ['netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png', 'netherrack.png'], hardness: 0.4 },
+            49: { name: 'Soul Sand', price: 4, sellPrice: 1, files: ['soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png', 'soul_sand.png'], hardness: 0.5 },
+            50: { name: 'Glowstone', price: 16, sellPrice: 4, files: ['glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png', 'glowstone.png'], light: 0xFFFFFF, hardness: 0.3 },
+            51: { name: 'End Stone', price: 10, sellPrice: 3, files: ['end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png', 'end_stone.png'], hardness: 3.0 },
+            52: { name: 'Iron Block', price: 100, sellPrice: 15, files: ['iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png', 'iron_block.png'], hardness: 5.0 },
+            53: { name: 'Gold Block', price: 150, sellPrice: 25, files: ['gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png', 'gold_block.png'], hardness: 3.0 },
+            54: { name: 'Diamond Block', price: 500, sellPrice: 20, files: ['diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png', 'diamond_block.png'], hardness: 5.0 },
+            55: { name: 'Brick', price: 6, sellPrice: 2, files: ['brick.png', 'brick.png', 'brick.png', 'brick.png', 'brick.png', 'brick.png'], hardness: 2.0 },
+            56: { name: 'Sandstone', price: 4, sellPrice: 1, files: ['sandstone_side.png', 'sandstone_side.png', 'sandstone_top.png', 'sandstone_bottom.png', 'sandstone_side.png', 'sandstone_side.png'], hardness: 0.8 },
+            57: { name: 'Quartz', price: 10, sellPrice: 3, files: ['quartz_side.png', 'quartz_side.png', 'quartz_top.png', 'quartz_bottom.png', 'quartz_side.png', 'quartz_side.png'], hardness: 0.8 },
+            58: { name: 'Grey Wool', price: 6, sellPrice: 2, files: ['wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png', 'wool_grey.png'], hardness: 0.8 },
+            59: { name: 'Lt Grey Wool', price: 6, sellPrice: 2, files: ['wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png', 'wool_light_grey.png'], hardness: 0.8 },
+            60: { name: 'Magenta Wool', price: 6, sellPrice: 2, files: ['wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png', 'wool_magenta.png'], hardness: 0.8 },
+            61: { name: 'Light Blue Wool', price: 6, sellPrice: 2, files: ['wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png', 'wool_light_blue.png'], hardness: 0.8 },
+            62: { name: 'Sponge', price: 10, sellPrice: 2, files: ['sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png'], hardness: 0.6 },
+            63: { name: 'Redstone Lamp', price: 16, sellPrice: 4, files: ['redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png'], hardness: 0.3 },
+            64: { name: 'Hay Bale', price: 4, sellPrice: 1, files: ['hay_side.png', 'hay_side.png', 'hay_top.png', 'hay_top.png', 'hay_side.png', 'hay_side.png'], hardness: 0.5 },
+            100: { name: 'Claim Block', price: 500, sellPrice: 50, files: ['sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png'], hardness: 5.0 }
         };
 
         let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars;
@@ -265,7 +321,7 @@
         let vel = new THREE.Vector3(), onGround = false, gameTime = 0, running = false, paused = false;
         let isTouch = 'ontouchstart' in window;
         let activeHotbarIndex = 0;
-        let hotbarSlots = [1, 2, 4, 12, 17, 8, 10, 35];
+        let hotbarSlots = [0, 0, 0, 0, 0, 0, 0, 0];
         let selectionBox;
         const keys = {}, joy = { x: 0, y: 0, id: null, sx: 0, sy: 0 };
         const touchState = { id: null, lx: 0, ly: 0, sx: 0, sy: 0, timer: null, moved: false, startTime: 0 };
@@ -315,6 +371,16 @@
                         updateRemotePlayer(pid, data);
                     }
                     if (change.type === "removed") removeRemotePlayer(pid);
+                });
+            });
+
+            const claimsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'claims');
+            onSnapshot(claimsRef, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if(change.type === "added") {
+                        const d = change.doc.data();
+                        landClaims[change.doc.id] = d.owner;
+                    }
                 });
             });
 
@@ -375,6 +441,7 @@
                     ry: playerGroup.rotation.y,
                     name: userDisplayName,
                     moving: Math.hypot(vel.x || 0, vel.z || 0) > 0.1,
+                    skin: currentSkin,
                     lastSeen: serverTimestamp()
                 }, { merge: true });
             }
@@ -384,12 +451,21 @@
             const group = new THREE.Group();
             let model;
             let pMixer, pActions = {};
-
+            
+            const skinData = SKINS[data.skin || 'default'];
+            
             if (modelLoaded && externalModel) {
                 model = THREE.SkeletonUtils.clone(externalModel);
                 model.position.y = -1.6;
-                // Since cloned, it inherits the PI rotation fix
-                model.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } });
+                model.traverse(n => { 
+                    if(n.isMesh) { 
+                        n.castShadow = true; n.receiveShadow = true; 
+                        if (skinData && skinData.color) {
+                             if(n.material) n.material = n.material.clone();
+                             if(n.material.color) n.material.color.setHex(skinData.color);
+                        }
+                    } 
+                });
                 group.add(model);
                 
                 pMixer = new THREE.AnimationMixer(model);
@@ -485,15 +561,20 @@
         function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
 
         function saveGame() {
-            localStorage.setItem('voxel_prefs_v1', JSON.stringify({ hotbar: hotbarSlots, povMode }));
+            localStorage.setItem('voxel_prefs_v1', JSON.stringify({ inventory, coins, currentSkin, activeTool, povMode }));
         }
 
         function loadGame() {
             const data = localStorage.getItem('voxel_prefs_v1');
             if (!data) return;
             const saved = JSON.parse(data);
-            hotbarSlots = saved.hotbar || hotbarSlots;
+            inventory = saved.inventory || inventory;
+            coins = saved.coins || 0;
+            currentSkin = saved.currentSkin || 'default';
+            activeTool = saved.activeTool || null;
             povMode = saved.povMode ?? 0;
+            updateHotbarFromInventory();
+            updateCoinDisplay();
         }
 
         async function createAtlas() {
@@ -574,6 +655,16 @@
             }
             if(y > h) return 0;
             if(y === h) return (h < 7) ? 6 : 1;
+            
+            if(y < h - 3) {
+                const rand = hash(x, y * z) % 10000;
+                if (rand < 1) return 54; 
+                if (rand < 5) return 15; 
+                if (rand < 20) return 14; 
+                if (rand < 60) return 13; 
+                if (rand < 150) return 12; 
+            }
+
             return (y > h - 3) ? 2 : 3;
         }
 
@@ -646,24 +737,55 @@
                 const bx = Math.floor(h.point.x - n.x*0.05), by = Math.floor(h.point.y - n.y*0.05), bz = Math.floor(h.point.z - n.z*0.05);
                 const pbx = Math.floor(h.point.x + n.x*0.05), pby = Math.floor(h.point.y + n.y*0.05), pbz = Math.floor(h.point.z + n.z*0.05);
                 
+                const chunkKey = `${Math.floor(place ? pbx : bx) >> 4},${Math.floor(place ? pbz : bz) >> 4}`;
+                if (landClaims[chunkKey] && landClaims[chunkKey] !== userId) {
+                    broadcastAction('CHAT', { text: "This land is claimed by " + landClaims[chunkKey] });
+                    return false;
+                }
+
                 if(place) {
-                    const id = hotbarSlots[activeHotbarIndex];
+                    const item = inventory[activeHotbarIndex];
+                    if(!item || item.count <= 0) return false;
+                    const id = item.id;
                     if(id === 0 || getBlock(pbx, pby, pbz) !== 0) return false;
                     const px = playerGroup.position.x, py = playerGroup.position.y, pz = playerGroup.position.z;
                     if(px + PLAYER_RADIUS > pbx && px - PLAYER_RADIUS < pbx + 1 && pz + PLAYER_RADIUS > pbz && pz - PLAYER_RADIUS < pbz + 1 && py > pby && py - PLAYER_HEIGHT < pby + 1) return false;
+                    
+                    item.count--;
+                    if(item.count <= 0) inventory[activeHotbarIndex] = null;
+                    updateHotbarFromInventory();
+                    updateUI();
+
                     const k = `${pbx},${pby},${pbz}`;
                     world[k] = id; if(id === 10) activeTorches.push({x:pbx, y:pby, z:pbz, k});
+                    
+                    if (id === 100) {
+                        setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', chunkKey), {
+                            owner: userId,
+                            x: pbx, z: pbz
+                        });
+                        landClaims[chunkKey] = userId;
+                    }
+
                     refreshChunk(pbx, pbz);
                     broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
                 } else {
                     const type = getBlock(bx, by, bz);
                     if(type === 0 || BLOCKS[type]?.indestructible) return false;
+                    
+                    let added = false;
+                    for(let i=0; i<30; i++) { if(inventory[i] && inventory[i].id === type) { inventory[i].count++; added = true; break; } }
+                    if(!added) { for(let i=0; i<30; i++) { if(!inventory[i]) { inventory[i] = {id: type, count: 1}; break; } } }
+                    updateHotbarFromInventory();
+                    updateUI();
+
                     const k = `${bx},${by},${bz}`;
                     world[k] = 0; 
                     if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
                     refreshChunk(bx, bz);
                     broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
                 }
+                saveGame();
                 return true;
             }
             return false;
@@ -728,7 +850,21 @@
         function sendChatMessage() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
-            if (text) { input.value = ''; broadcastAction('CHAT', { text }); }
+            if (text) { 
+                if (text === '/home') {
+                    const claims = Object.keys(landClaims).filter(k => landClaims[k] === userId);
+                    if (claims.length > 0) {
+                        const [cx, cz] = claims[0].split(',').map(Number);
+                        playerGroup.position.set(cx * 16 + 8, 30, cz * 16 + 8);
+                        vel.y = 0;
+                    } else {
+                        broadcastAction('CHAT', { text: "No land claimed." });
+                    }
+                } else {
+                    broadcastAction('CHAT', { text }); 
+                }
+                input.value = ''; 
+            }
         }
 
         function setupInput() {
@@ -737,6 +873,10 @@
             document.getElementById('chat-toggle-btn').onclick = (e) => { e.stopPropagation(); toggleChat(); };
             document.getElementById('chat-send-btn').onclick = (e) => { e.stopPropagation(); sendChatMessage(); };
             document.getElementById('chat-input').onkeydown = (e) => { if (e.key === 'Enter') sendChatMessage(); e.stopPropagation(); };
+            
+            document.getElementById('shop-btn').onclick = (e) => { e.stopPropagation(); toggleShop(); };
+            document.getElementById('close-shop').onclick = () => toggleShop();
+            document.getElementById('del-mode-btn').onclick = () => { deleteMode = !deleteMode; document.getElementById('del-mode-btn').innerText = `DELETE MODE: ${deleteMode?'ON':'OFF'}`; };
 
             const pBtn = document.getElementById('pause-btn'), camBtn = document.getElementById('cam-btn'), fsBtn = document.getElementById('fs-btn'), pMenu = document.getElementById('pause-menu');
             camBtn.onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
@@ -751,7 +891,7 @@
                     if (!running || paused) return;
                     for(let t of e.changedTouches) {
                         const r = zone.getBoundingClientRect();
-                        if (t.target.closest('#hotbar-container') || t.target.closest('.corner-btn') || t.target.closest('#inventory-overlay') || t.target.closest('#chat-container')) continue;
+                        if (t.target.closest('#hotbar-container') || t.target.closest('.corner-btn') || t.target.closest('#inventory-overlay') || t.target.closest('#shop-overlay') || t.target.closest('#chat-container')) continue;
                         if(Math.hypot(t.clientX-(r.left+r.width/2), t.clientY-(r.top+r.height/2)) < 60) { joy.id = t.identifier; joy.sx = t.clientX; joy.sy = t.clientY; }
                         else if(t.target.closest('#jump-btn')) { handleJumpTap(); }
                         else if(t.target.closest('#up-btn')) { isTouchingUp = true; }
@@ -762,7 +902,7 @@
                             touchState.timer = setTimeout(() => { 
                                 if(!touchState.moved) { 
                                     document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
-                                    touchState.timer = setInterval(() => interact(false), MINE_DELAY); 
+                                    touchState.timer = setInterval(() => interact(false), currentMineDelay); 
                                 } 
                             }, 200);
                         }
@@ -814,7 +954,7 @@
                     if(e.button === 0) { 
                         document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
                         if(touchState.timer) clearInterval(touchState.timer);
-                        touchState.timer = setInterval(() => interact(false), MINE_DELAY); 
+                        touchState.timer = setInterval(() => interact(false), currentMineDelay); 
                     } else if(e.button === 2) {
                         interact(true); 
                     }
@@ -834,39 +974,144 @@
             }
         }
 
+        function updateHotbarFromInventory() {
+            hotbarSlots = inventory.slice(0, 8);
+        }
+
         function toggleInventory() {
             const overlay = document.getElementById('inventory-overlay');
             const isOpening = overlay.style.display !== 'flex';
             overlay.style.display = isOpening ? 'flex' : 'none';
             if(isOpening) {
                 const grid = document.getElementById('inventory-grid'); grid.innerHTML = '';
-                Object.keys(BLOCKS).forEach(id => {
-                    const blockId = parseInt(id); const item = document.createElement('div'); item.className = 'slot';
-                    const c = document.createElement('canvas'); c.width=32; c.height=32;
-                    const t = BLOCKS[blockId].tiles[4]; const ctx = c.getContext('2d');
-                    const tx = (t % ATLAS_COLS) * 32;
-                    const ty = Math.floor(t / ATLAS_COLS) * 32;
-                    ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 32, 32);
-                    item.appendChild(c); item.onclick = () => { hotbarSlots[activeHotbarIndex] = blockId; updateUI(); toggleInventory(); };
-                    grid.appendChild(item);
+                inventory.forEach((item, i) => {
+                    const slot = document.createElement('div'); slot.className = 'slot' + (i < 8 ? ' active' : '');
+                    if(item) {
+                        const c = document.createElement('canvas'); c.width=32; c.height=32;
+                        const t = BLOCKS[item.id].tiles[4]; const ctx = c.getContext('2d');
+                        const tx = (t % ATLAS_COLS) * 32;
+                        const ty = Math.floor(t / ATLAS_COLS) * 32;
+                        ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 32, 32);
+                        slot.appendChild(c);
+                        const cnt = document.createElement('div'); cnt.className = 'slot-count'; cnt.innerText = item.count;
+                        slot.appendChild(cnt);
+                        slot.onclick = () => {
+                            if(deleteMode) { inventory[i] = null; updateHotbarFromInventory(); updateUI(); toggleInventory(); toggleInventory(); }
+                        }
+                    }
+                    grid.appendChild(slot);
                 });
                 if(document.pointerLockElement) document.exitPointerLock();
             } else if(!isTouch && !paused) document.body.requestPointerLock();
         }
 
+        function toggleShop() {
+            const overlay = document.getElementById('shop-overlay');
+            const isOpening = overlay.style.display !== 'flex';
+            overlay.style.display = isOpening ? 'flex' : 'none';
+            if(isOpening) switchShopTab('blocks');
+            if(isOpening && document.pointerLockElement) document.exitPointerLock();
+        }
+
+        window.switchShopTab = (tab) => {
+            document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            const grid = document.getElementById('shop-grid'); grid.innerHTML = '';
+            
+            if(tab === 'blocks') {
+                Object.keys(BLOCKS).forEach(id => {
+                    const b = BLOCKS[id]; if(!b.price && b.id !== 100) return;
+                    createShopItem(grid, b.name, b.price, () => buyItem(id, b.price), (e) => { e.preventDefault(); sellItem(id, b.sellPrice || 0); });
+                });
+            } else if(tab === 'tools') {
+                Object.keys(TOOLS).forEach(id => {
+                    const t = TOOLS[id];
+                    createShopItem(grid, t.name, t.price, () => buyTool(id), (e) => e.preventDefault());
+                });
+            } else if(tab === 'skins') {
+                Object.keys(SKINS).forEach(id => {
+                    const s = SKINS[id];
+                    createShopItem(grid, s.name, s.price, () => buySkin(id), (e) => e.preventDefault());
+                });
+            }
+        };
+
+        function createShopItem(grid, name, price, onClick, onRightClick) {
+            const el = document.createElement('div'); el.className = 'shop-item';
+            el.innerHTML = `<div class="shop-name">${name}</div><div class="shop-price">${price}¢</div>`;
+            el.onclick = onClick;
+            el.oncontextmenu = onRightClick;
+            grid.appendChild(el);
+        }
+
+        function buyItem(id, price) {
+            if(coins >= price) {
+                coins -= price;
+                let added = false;
+                for(let i=0; i<30; i++) { if(inventory[i] && inventory[i].id == id) { inventory[i].count++; added = true; break; } }
+                if(!added) { for(let i=0; i<30; i++) { if(!inventory[i]) { inventory[i] = {id: parseInt(id), count: 1}; break; } } }
+                updateCoinDisplay(); updateHotbarFromInventory(); updateUI(); saveGame();
+            }
+        }
+
+        function sellItem(id, price) {
+            if(price <= 0) return;
+            const idx = inventory.findIndex(i => i && i.id == id);
+            if(idx !== -1) {
+                inventory[idx].count--;
+                if(inventory[idx].count <= 0) inventory[idx] = null;
+                coins += price;
+                updateCoinDisplay(); updateHotbarFromInventory(); updateUI(); saveGame();
+            }
+        }
+
+        function buyTool(id) {
+            const t = TOOLS[id];
+            if(coins >= t.price) {
+                coins -= t.price;
+                activeTool = t;
+                currentMineDelay = 400 * t.speedMod;
+                updateCoinDisplay(); saveGame();
+                alert("Equipped " + t.name);
+            }
+        }
+
+        function buySkin(id) {
+            const s = SKINS[id];
+            if(coins >= s.price) {
+                coins -= s.price;
+                currentSkin = id;
+                updateCoinDisplay(); saveGame();
+                alert("Skin Equipped!");
+                if (externalModel) {
+                     externalModel.traverse(n => {
+                        if(n.isMesh) {
+                            if(n.material) n.material = n.material.clone();
+                            if(n.material.color) n.material.color.setHex(s.color || 0xFFFFFF);
+                        }
+                     });
+                }
+            }
+        }
+
+        function updateCoinDisplay() { document.getElementById('coin-display').innerText = `COINS: ${coins}`; }
+
         function updateUI() {
             const slots = document.getElementById('hotbar-slots'); slots.innerHTML = '';
-            hotbarSlots.forEach((id, i) => {
+            hotbarSlots.forEach((item, i) => {
                 const s = document.createElement('div'); s.className = 'slot' + (i === activeHotbarIndex ? ' active' : '');
-                const c = document.createElement('canvas'); c.width=24; c.height=24;
-                if(id > 0) { 
-                    const t = BLOCKS[id].tiles[4]; 
+                if(item && item.count > 0) { 
+                    const c = document.createElement('canvas'); c.width=24; c.height=24;
+                    const t = BLOCKS[item.id].tiles[4]; 
                     const ctx = c.getContext('2d'); 
                     const tx = (t % ATLAS_COLS) * 32;
                     const ty = Math.floor(t / ATLAS_COLS) * 32;
                     ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 24, 24); 
+                    s.appendChild(c); 
+                    const cnt = document.createElement('div'); cnt.className = 'slot-count'; cnt.innerText = item.count; s.appendChild(cnt);
                 }
-                s.appendChild(c); s.onclick = (e) => { e.stopPropagation(); activeHotbarIndex = i; updateUI(); }; slots.appendChild(s);
+                s.onclick = (e) => { e.stopPropagation(); activeHotbarIndex = i; updateUI(); 
+                }; slots.appendChild(s);
             });
         }
 
@@ -882,7 +1127,7 @@
         function animate() {
             if(!running) return;
             requestAnimationFrame(animate);
-            if(paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex') { renderer.render(scene, camera); return; }
+            if(paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('shop-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex') { renderer.render(scene, camera); return; }
             const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
             if(mixer) mixer.update(dt);
             if(isFlying) { let flyVel = 0; if (keys[' '] || isTouchingUp) flyVel += 1; if (keys['shift'] || isTouchingDown) flyVel -= 1; vel.y = flyVel * 10; } else { vel.y -= 24 * dt; }
@@ -914,6 +1159,18 @@
             document.getElementById('user-display-id').innerText = userDisplayName;
             document.getElementById('loading').style.display = 'none';
             loadGame();
+            
+            if(currentSkin && SKINS[currentSkin] && externalModel) {
+                 const s = SKINS[currentSkin];
+                 externalModel.traverse(n => {
+                    if(n.isMesh && s.color) {
+                        if(n.material) n.material = n.material.clone();
+                        if(n.material.color) n.material.color.setHex(s.color);
+                    }
+                 });
+            }
+            if(activeTool) currentMineDelay = 400 * activeTool.speedMod;
+
             initNetwork();
             playerGroup.position.set(0.5, 32, 0.5);
             for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
@@ -957,7 +1214,6 @@
                 externalModel = gltf.scene; 
                 externalModel.animations = gltf.animations;
                 externalModel.scale.set(0.4, 0.4, 0.4); 
-                // FIX: Rotate model 180 degrees so it faces forward (-Z)
                 externalModel.rotation.y = Math.PI; 
                 externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
                 playerGroup.add(externalModel);
@@ -967,19 +1223,20 @@
                 gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
                 if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
                 
-                document.getElementById('loading-text').innerText = 'CHECKING AUTH...';
-                setPersistence(auth, browserLocalPersistence).then(() => {
-                    onAuthStateChanged(auth, (user) => {
-                        if (user) startGame(user);
-                        else { document.getElementById('loading-text').innerText = 'READY TO CONNECT'; document.getElementById('start-btn').style.display = 'block'; }
-                    });
-                });
             }, undefined, () => {
                 externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x00ff00})); 
                 externalModel.castShadow = true; externalModel.receiveShadow = true;
                 playerGroup.add(externalModel); 
-                document.getElementById('start-btn').style.display = 'block';
             });
+            
+            document.getElementById('loading-text').innerText = 'CHECKING AUTH...';
+            setPersistence(auth, browserLocalPersistence).then(() => {
+                onAuthStateChanged(auth, (user) => {
+                    if (user) startGame(user);
+                    else { document.getElementById('loading-text').innerText = 'READY TO CONNECT'; document.getElementById('start-btn').style.display = 'block'; }
+                });
+            });
+
             clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
             const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
