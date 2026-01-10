@@ -103,13 +103,17 @@
         #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
         
         #del-mode-btn { background: #a33; margin-top: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; }
-        .shop-item { width: 50px; height: 60px; background: #555; border: 2px solid #000; display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 2px; }
+        
+        #shop-mode-btn { background: #2ecc71; margin-bottom: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; text-align: center; }
+        
+        .shop-item { width: 50px; height: 60px; background: #555; border: 2px solid #000; display: flex; flex-direction: column; align-items: center; justify-content: space-between; cursor: pointer; padding: 2px; }
         .shop-item:hover { background: #666; }
-        .shop-price { font-size: 6px; color: #FFD700; margin-top: 2px; text-align: center; }
-        .shop-name { font-size: 5px; color: #fff; margin-bottom: 2px; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; }
+        .shop-price { font-size: 6px; color: #FFD700; margin-bottom: 2px; text-align: center; }
+        .shop-name { font-size: 5px; color: #fff; margin-top: 2px; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; }
         .shop-tabs { display: flex; gap: 5px; margin-bottom: 10px; }
         .shop-tab { padding: 8px; background: #555; color: white; border: 2px solid #000; font-size: 8px; cursor: pointer; }
         .shop-tab.active { background: #DAA520; color: black; }
+        .shop-item canvas { image-rendering: pixelated; margin: 2px 0; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -178,6 +182,7 @@
 
     <div id="shop-overlay">
         <div style="color: #DAA520; margin-bottom: 5px; font-size: 10px;">ITEM SHOP</div>
+        <div id="shop-mode-btn">MODE: BUY</div>
         <div style="color: #888; margin-bottom: 10px; font-size: 6px;">L-CLICK: BUY | R-CLICK: SELL</div>
         <div class="shop-tabs">
             <div class="shop-tab active" onclick="switchShopTab('blocks')">BLOCKS</div>
@@ -227,6 +232,7 @@
         let coins = 0;
         let inventory = new Array(30).fill(null); 
         let deleteMode = false;
+        let shopSellMode = false;
         let landClaims = {}; 
         let currentSkin = 'default';
         let activeTool = null;
@@ -877,6 +883,13 @@
             document.getElementById('shop-btn').onclick = (e) => { e.stopPropagation(); toggleShop(); };
             document.getElementById('close-shop').onclick = () => toggleShop();
             document.getElementById('del-mode-btn').onclick = () => { deleteMode = !deleteMode; document.getElementById('del-mode-btn').innerText = `DELETE MODE: ${deleteMode?'ON':'OFF'}`; };
+            
+            document.getElementById('shop-mode-btn').onclick = () => { 
+                shopSellMode = !shopSellMode; 
+                const btn = document.getElementById('shop-mode-btn');
+                btn.innerText = `MODE: ${shopSellMode ? 'SELL' : 'BUY'}`;
+                btn.style.background = shopSellMode ? '#e74c3c' : '#2ecc71';
+            };
 
             const pBtn = document.getElementById('pause-btn'), camBtn = document.getElementById('cam-btn'), fsBtn = document.getElementById('fs-btn'), pMenu = document.getElementById('pause-menu');
             camBtn.onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
@@ -1021,25 +1034,41 @@
             if(tab === 'blocks') {
                 Object.keys(BLOCKS).forEach(id => {
                     const b = BLOCKS[id]; if(!b.price && b.id !== 100) return;
-                    createShopItem(grid, b.name, b.price, () => buyItem(id, b.price), (e) => { e.preventDefault(); sellItem(id, b.sellPrice || 0); });
+                    createShopItem(grid, b.name, b.price, b, 'block', () => buyItem(id, b.price), (e) => { e.preventDefault(); sellItem(id, b.sellPrice || 0); });
                 });
             } else if(tab === 'tools') {
                 Object.keys(TOOLS).forEach(id => {
                     const t = TOOLS[id];
-                    createShopItem(grid, t.name, t.price, () => buyTool(id), (e) => e.preventDefault());
+                    createShopItem(grid, t.name, t.price, t, 'tool', () => buyTool(id), (e) => e.preventDefault());
                 });
             } else if(tab === 'skins') {
                 Object.keys(SKINS).forEach(id => {
                     const s = SKINS[id];
-                    createShopItem(grid, s.name, s.price, () => buySkin(id), (e) => e.preventDefault());
+                    createShopItem(grid, s.name, s.price, s, 'skin', () => buySkin(id), (e) => e.preventDefault());
                 });
             }
         };
 
-        function createShopItem(grid, name, price, onClick, onRightClick) {
+        function createShopItem(grid, name, price, itemData, type, onClick, onRightClick) {
             const el = document.createElement('div'); el.className = 'shop-item';
-            el.innerHTML = `<div class="shop-name">${name}</div><div class="shop-price">${price}¢</div>`;
-            el.onclick = onClick;
+            
+            if(type === 'block' && itemData.tiles && atlas && atlas.image) {
+                const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+                const t = itemData.tiles[4]; 
+                const ctx = c.getContext('2d');
+                const tx = (t % ATLAS_COLS) * 32;
+                const ty = Math.floor(t / ATLAS_COLS) * 32;
+                ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 32, 32);
+                el.appendChild(c);
+            }
+
+            const nameEl = document.createElement('div'); nameEl.className = 'shop-name'; nameEl.innerText = name; el.appendChild(nameEl);
+            const priceEl = document.createElement('div'); priceEl.className = 'shop-price'; priceEl.innerText = price + '¢'; el.appendChild(priceEl);
+            
+            el.onclick = (e) => {
+                if (shopSellMode) onRightClick(e);
+                else onClick(e);
+            };
             el.oncontextmenu = onRightClick;
             grid.appendChild(el);
         }
