@@ -567,18 +567,37 @@
         function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
 
         function saveGame() {
-            localStorage.setItem('voxel_prefs_v1', JSON.stringify({ inventory, coins, currentSkin, activeTool, povMode }));
+            localStorage.setItem('voxel_prefs_client', JSON.stringify({ povMode }));
+            if (currentUser && userId) {
+                const userRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'user_stats', userId);
+                setDoc(userRef, {
+                    inventory: inventory,
+                    coins: coins,
+                    currentSkin: currentSkin,
+                    activeTool: activeTool
+                }, { merge: true });
+            }
         }
 
-        function loadGame() {
-            const data = localStorage.getItem('voxel_prefs_v1');
-            if (!data) return;
-            const saved = JSON.parse(data);
-            inventory = saved.inventory || inventory;
-            coins = saved.coins || 0;
-            currentSkin = saved.currentSkin || 'default';
-            activeTool = saved.activeTool || null;
-            povMode = saved.povMode ?? 0;
+        async function loadGame() {
+            const localData = localStorage.getItem('voxel_prefs_client');
+            if(localData) {
+                const parsed = JSON.parse(localData);
+                povMode = parsed.povMode ?? 0;
+            }
+            if(currentUser && userId) {
+                const userRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'user_stats', userId);
+                try {
+                    const snap = await getDoc(userRef);
+                    if(snap.exists()) {
+                        const saved = snap.data();
+                        inventory = saved.inventory || inventory;
+                        coins = saved.coins || 0;
+                        currentSkin = saved.currentSkin || 'default';
+                        activeTool = saved.activeTool || null;
+                    }
+                } catch(e) { console.error(e); }
+            }
             updateHotbarFromInventory();
             updateCoinDisplay();
         }
@@ -1187,7 +1206,7 @@
             userDisplayName = user.displayName || user.email.split('@')[0] || userId.substr(0, 8);
             document.getElementById('user-display-id').innerText = userDisplayName;
             document.getElementById('loading').style.display = 'none';
-            loadGame();
+            await loadGame();
             
             if(currentSkin && SKINS[currentSkin] && externalModel) {
                  const s = SKINS[currentSkin];
