@@ -196,7 +196,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
@@ -365,52 +365,6 @@
             return sprite;
         }
 
-        async function saveUserData() {
-            if (!currentUser) return;
-            try {
-                const userRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'users', userId);
-                await setDoc(userRef, {
-                    coins: coins,
-                    inventory: inventory,
-                    hotbarSlots: hotbarSlots,
-                    currentSkin: currentSkin,
-                    activeToolId: activeTool ? activeTool.id : null,
-                    updatedAt: serverTimestamp()
-                }, { merge: true });
-            } catch (e) {
-                console.error("Error saving user data: ", e);
-            }
-        }
-
-        async function loadUserData() {
-            if (!currentUser) return;
-            try {
-                const userRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'users', userId);
-                const docSnap = await getDoc(userRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    coins = data.coins || 0;
-                    inventory = data.inventory || new Array(30).fill(null);
-                    hotbarSlots = data.hotbarSlots || [0, 0, 0, 0, 0, 0, 0, 0];
-                    currentSkin = data.currentSkin || 'default';
-                    if (data.activeToolId) activeTool = { ...TOOLS[data.activeToolId], id: data.activeToolId };
-                    
-                    updateUI();
-                    updateHotbarUI();
-                } else {
-                    // Initial setup for new user
-                    coins = 100;
-                    inventory[0] = { id: 1, count: 64 };
-                    inventory[1] = { id: 2, count: 64 };
-                    inventory[2] = { id: 3, count: 64 };
-                    hotbarSlots = [1, 2, 3, 0, 0, 0, 0, 0];
-                    await saveUserData();
-                }
-            } catch (e) {
-                console.error("Error loading user data: ", e);
-            }
-        }
-
         function initNetwork() {
             const playersRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'players');
             onSnapshot(playersRef, (snapshot) => {
@@ -460,737 +414,629 @@
             onSnapshot(chatQ, (snapshot) => {
                 const log = document.getElementById('chat-log');
                 const msgs = [];
-                snapshot.forEach(doc => msgs.push(doc.data()));
-                msgs.reverse();
-                log.innerHTML = '';
-                msgs.forEach(m => {
-                    const el = document.createElement('div');
-                    el.innerHTML = `<span style="color:#0f0">[${m.user.substr(0,8)}]</span>: ${m.text}`;
-                    log.appendChild(el);
-                });
-                log.scrollTop = log.scrollHeight;
+                snapshot.forEach(d => msgs.push(d.data()));
+                log.innerHTML = msgs.map(m => `<div><span style="color:#0f0">[${m.user}]</span>: ${m.text}</div>`).join('');
             });
+        }
+
+        async function savePlayerData() {
+            if (!currentUser) return;
+            const playerDoc = doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId);
+            try {
+                await updateDoc(playerDoc, {
+                    coins: coins,
+                    inventory: inventory,
+                    currentSkin: currentSkin,
+                    activeTool: activeTool,
+                    lastSync: serverTimestamp()
+                });
+            } catch (e) {
+                console.error("Save failed:", e);
+                // Fallback for first-time creation if update fails
+                await setDoc(playerDoc, {
+                    coins: coins,
+                    inventory: inventory,
+                    currentSkin: currentSkin,
+                    activeTool: activeTool,
+                    x: playerGroup.position.x,
+                    y: playerGroup.position.y,
+                    z: playerGroup.position.z,
+                    ry: playerGroup.rotation.y
+                }, { merge: true });
+            }
         }
 
         async function startGame(user) {
             currentUser = user;
             userId = user.uid;
-            userDisplayName = user.displayName || 'Player';
-            document.getElementById('user-display-id').innerText = userId.substr(0,8);
+            userDisplayName = user.displayName || user.email.split('@')[0];
+            document.getElementById('user-display-id').innerText = userDisplayName;
             
-            await loadUserData(); // - Load from Firebase on start
-            init();
-            initNetwork();
+            const playerDoc = doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId);
+            const snap = await getDoc(playerDoc);
+            
+            if (snap.exists()) {
+                const d = snap.data();
+                coins = d.coins || 0;
+                inventory = d.inventory || new Array(30).fill(null);
+                currentSkin = d.currentSkin || 'default';
+                activeTool = d.activeTool || null;
+                if (d.x !== undefined) playerGroup.position.set(d.x, d.y, d.z);
+            } else {
+                coins = 100;
+                inventory = new Array(30).fill(null);
+                inventory[0] = { id: 1, count: 64 };
+                inventory[1] = { id: 2, count: 64 };
+                await setDoc(playerDoc, { 
+                    coins, inventory, currentSkin, activeTool,
+                    x: 0, y: 15, z: 0, ry: 0, name: userDisplayName 
+                });
+            }
+
             document.getElementById('loading').style.display = 'none';
-            document.querySelectorAll('.ctrl').forEach(c => c.style.display = 'block');
             running = true;
-            animate();
-            setInterval(syncPlayer, 50);
-        }
-
-        function init() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ antialias: false });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setClearColor(0x87CEEB);
-            renderer.shadowMap.enabled = true;
-            document.body.appendChild(renderer.domElement);
-
-            raycaster = new THREE.Raycaster();
-            raycaster.far = 10;
-
-            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambient);
-            sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            sunLight.position.set(50, 100, 50);
-            scene.add(sunLight);
-
-            atlas = createTextureAtlas();
-
-            playerGroup = new THREE.Group();
-            playerGroup.position.set(0, 30, 0);
-            scene.add(playerGroup);
-
-            cameraPivot = new THREE.Group();
-            playerGroup.add(cameraPivot);
-            cameraPivot.add(camera);
-            camera.position.set(0, PLAYER_HEIGHT, 0);
-
-            const loader = new THREE.GLTFLoader();
-            loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
-                externalModel = gltf.scene;
-                externalModel.scale.set(0.2, 0.2, 0.2);
-                externalModel.position.y = 0.05;
-                externalModel.rotation.y = Math.PI;
-                playerGroup.add(externalModel);
-                
-                mixer = new THREE.AnimationMixer(externalModel);
-                gltf.animations.forEach(anim => actions[anim.name] = mixer.clipAction(anim));
-                activeAction = actions['Idle'];
-                activeAction.play();
-                
-                modelLoaded = true;
-                updateSkin();
-            });
-
-            const selGeo = new THREE.BoxGeometry(1.01, 1.01, 1.01);
-            const selMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.5 });
-            selectionBox = new THREE.Mesh(selGeo, selMat);
-            scene.add(selectionBox);
-
-            generateWorld();
-            setupEvents();
+            initNetwork();
             updateUI();
-            updateHotbarUI();
+            updateToolStats();
+            loadPlayerModel(currentSkin);
+            requestAnimationFrame(loop);
+            
+            setInterval(() => {
+                if (running) {
+                    setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId), {
+                        x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z,
+                        ry: playerGroup.rotation.y, action: activeAction ? activeAction._clip.name : 'Idle',
+                        timestamp: serverTimestamp(), name: userDisplayName,
+                        coins: coins, inventory: inventory, currentSkin: currentSkin, activeTool: activeTool
+                    }, { merge: true });
+                }
+            }, 100);
         }
 
-        function createTextureAtlas() {
-            const canvas = document.createElement('canvas');
-            canvas.width = ATLAS_COLS * 32;
-            canvas.height = ATLAS_ROWS * 32;
+        function updateUI() {
+            document.getElementById('coin-display').innerText = `COINS: ${coins}`;
+            const container = document.getElementById('hotbar-slots');
+            container.innerHTML = '';
+            for (let i = 0; i < 8; i++) {
+                const slot = document.createElement('div');
+                slot.className = `slot ${i === activeHotbarIndex ? 'active' : ''}`;
+                const item = inventory[i];
+                if (item) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 32; canvas.height = 32;
+                    drawItemIcon(canvas, item.id);
+                    slot.appendChild(canvas);
+                    const count = document.createElement('div');
+                    count.className = 'slot-count';
+                    count.innerText = item.count;
+                    slot.appendChild(count);
+                }
+                slot.onclick = () => { activeHotbarIndex = i; updateUI(); };
+                container.appendChild(slot);
+            }
+        }
+
+        function drawItemIcon(canvas, id) {
             const ctx = canvas.getContext('2d');
             ctx.imageSmoothingEnabled = false;
-
-            const tex = new THREE.CanvasTexture(canvas);
-            tex.magFilter = THREE.NearestFilter;
-            tex.minFilter = THREE.NearestFilter;
-
-            const loader = new THREE.ImageLoader();
-            const draw = (id, faceIdx, file) => {
-                loader.load(`https://raw.githubusercontent.com/PolyMarsDev/Voxel-Island/main/textures/${file}`, (img) => {
-                    const idx = (id - 1) * 6 + faceIdx;
-                    const x = (idx % ATLAS_COLS) * 32;
-                    const y = Math.floor(idx / ATLAS_COLS) * 32;
-                    ctx.drawImage(img, x, y, 32, 32);
-                    tex.needsUpdate = true;
-                    if (running) Object.values(chunkMeshes).forEach(m => m.material.map.needsUpdate = true);
-                });
-            };
-
-            Object.keys(BLOCKS).forEach(id => {
-                BLOCKS[id].files.forEach((f, i) => draw(id, i, f));
-            });
-            return tex;
-        }
-
-        function generateWorld() {
-            for (let x = -CHUNK_SIZE; x < CHUNK_SIZE; x++) {
-                for (let z = -CHUNK_SIZE; z < CHUNK_SIZE; z++) {
-                    const h = Math.floor(Math.sin(x/8)*Math.cos(z/8)*4 + 20);
-                    for (let y = 0; y < h; y++) {
-                        let id = 3;
-                        if (y === h - 1) id = 1;
-                        else if (y > h - 4) id = 2;
-                        world[`${x},${y},${z}`] = id;
-                    }
-                    world[`${x},0,${z}`] = 9; 
-                }
-            }
-            for (let cx = -RENDER_DIST; cx <= RENDER_DIST; cx++) {
-                for (let cz = -RENDER_DIST; cz <= RENDER_DIST; cz++) {
-                    buildChunk(cx * CHUNK_SIZE, cz * CHUNK_SIZE);
-                }
+            if (TOOLS[id]) {
+                const img = new Image(); img.src = TOOLS[id].icon;
+                img.onload = () => ctx.drawImage(img, 0, 0, 32, 32);
+            } else if (BLOCKS[id]) {
+                const img = new Image(); img.src = BLOCKS[id].files[2] || BLOCKS[id].files[0];
+                img.onload = () => ctx.drawImage(img, 4, 4, 24, 24);
             }
         }
 
-        function buildChunk(cx, cz) {
-            const positions = [], uvs = [], indices = [];
-            let count = 0;
-
-            for (let x = cx; x < cx + CHUNK_SIZE; x++) {
-                for (let z = cz; z < cz + CHUNK_SIZE; z++) {
-                    for (let y = 0; y < 64; y++) {
-                        const id = world[`${x},${y},${z}`];
-                        if (!id || id === 0 || id === 11) continue;
-
-                        const faces = [
-                            { n: [1, 0, 0], v: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], uv: 0 },
-                            { n: [-1, 0, 0], v: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]], uv: 1 },
-                            { n: [0, 1, 0], v: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], uv: 2 },
-                            { n: [0, -1, 0], v: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], uv: 3 },
-                            { n: [0, 0, 1], v: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], uv: 4 },
-                            { n: [0, 0, -1], v: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], uv: 5 }
-                        ];
-
-                        faces.forEach((f) => {
-                            const ni = x + f.n[0], nj = y + f.n[1], nk = z + f.n[2];
-                            const neighbor = world[`${ni},${nj},${nk}`];
-                            if (!neighbor || neighbor === 0 || BLOCKS[neighbor]?.transparent || neighbor === 11) {
-                                f.v.forEach(v => positions.push(x + v[0], y + v[1], z + v[2]));
-                                const uvIdx = (id - 1) * 6 + f.uv;
-                                const u = (uvIdx % ATLAS_COLS) / ATLAS_COLS;
-                                const v = 1 - (Math.floor(uvIdx / ATLAS_COLS) + 1) / ATLAS_ROWS;
-                                uvs.push(u, v, u + 1/ATLAS_COLS, v, u + 1/ATLAS_COLS, v + 1/ATLAS_ROWS, u, v + 1/ATLAS_ROWS);
-                                indices.push(count, count + 1, count + 2, count, count + 2, count + 3);
-                                count += 4;
-                            }
-                        });
-                    }
-                }
-            }
-
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-            geo.setIndex(indices);
-            geo.computeVertexNormals();
-
-            if (chunkMeshes[`${cx},${cz}`]) {
-                scene.remove(chunkMeshes[`${cx},${cz}`]);
-                clickables = clickables.filter(c => c !== chunkMeshes[`${cx},${cz}`]);
-            }
-
-            const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: atlas, transparent: true, alphaTest: 0.1 }));
-            scene.add(mesh);
-            chunkMeshes[`${cx},${cz}`] = mesh;
-            clickables.push(mesh);
-        }
-
-        function refreshChunk(x, z) {
-            const cx = Math.floor(x / CHUNK_SIZE) * CHUNK_SIZE;
-            const cz = Math.floor(z / CHUNK_SIZE) * CHUNK_SIZE;
-            buildChunk(cx, cz);
-            if (x % CHUNK_SIZE === 0) buildChunk(cx - CHUNK_SIZE, cz);
-            if (x % CHUNK_SIZE === CHUNK_SIZE - 1) buildChunk(cx + CHUNK_SIZE, cz);
-            if (z % CHUNK_SIZE === 0) buildChunk(cx, cz - CHUNK_SIZE);
-            if (z % CHUNK_SIZE === CHUNK_SIZE - 1) buildChunk(cx, cz + CHUNK_SIZE);
-        }
-
-        async function syncPlayer() {
-            if (!currentUser) return;
-            const playerRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId);
-            await setDoc(playerRef, {
-                x: playerGroup.position.x,
-                y: playerGroup.position.y,
-                z: playerGroup.position.z,
-                ry: playerGroup.rotation.y,
-                display: userDisplayName,
-                skin: currentSkin,
-                lastSeen: serverTimestamp()
-            }, { merge: true });
-        }
-
-        function createRemotePlayer(id, data) {
+        function createRemotePlayer(pid, data) {
             const group = new THREE.Group();
-            const label = makeTextSprite(data.display || 'Player');
-            label.position.y = 1.2;
+            const label = makeTextSprite(data.name || pid.substring(0,5));
+            label.position.y = 2.2;
             group.add(label);
-
-            if (modelLoaded) {
-                const model = SkeletonUtils.clone(externalModel);
+            otherPlayers[pid] = { group, label };
+            
+            const loader = new THREE.GLTFLoader();
+            loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
+                const model = THREE.SkeletonUtils.clone(gltf.scene);
                 model.scale.set(0.2, 0.2, 0.2);
-                model.rotation.y = Math.PI;
+                model.position.y = -0.1;
+                const skin = SKINS[data.currentSkin || 'default'];
+                if (skin && skin.color) {
+                    model.traverse(child => { if (child.isMesh) child.material = child.material.clone(); child.material.color?.set(skin.color); });
+                }
                 group.add(model);
-                group.userData.model = model;
-                
-                const remoteMixer = new THREE.AnimationMixer(model);
-                group.userData.mixer = remoteMixer;
-                
-                if (data.skin && SKINS[data.skin]) {
-                    model.traverse(child => {
-                        if (child.isMesh && SKINS[data.skin].color) child.material.color.setHex(SKINS[data.skin].color);
-                    });
-                }
-            }
-
-            scene.add(group);
-            otherPlayers[id] = group;
+                const mixer = new THREE.AnimationMixer(model);
+                const actions = {};
+                gltf.animations.forEach(clip => { actions[clip.name] = mixer.clipAction(clip); });
+                otherPlayers[pid].mixer = mixer;
+                otherPlayers[pid].actions = actions;
+                otherPlayers[pid].activeAction = actions['Idle'];
+                otherPlayers[pid].activeAction.play();
+                scene.add(group);
+            });
         }
 
-        function updateRemotePlayer(id, data) {
-            const p = otherPlayers[id];
+        function updateRemotePlayer(pid, data) {
+            const p = otherPlayers[pid];
             if (!p) return;
-            p.position.set(data.x, data.y, data.z);
-            p.rotation.y = data.ry;
-        }
-
-        function removeRemotePlayer(id) {
-            if (otherPlayers[id]) {
-                scene.remove(otherPlayers[id]);
-                delete otherPlayers[id];
+            p.group.position.set(data.x, data.y, data.z);
+            p.group.rotation.y = data.ry;
+            if (p.actions && data.action && p.actions[data.action]) {
+                if (p.activeAction._clip.name !== data.action) {
+                    const next = p.actions[data.action];
+                    p.activeAction.fadeOut(0.2);
+                    next.reset().fadeIn(0.2).play();
+                    p.activeAction = next;
+                }
             }
         }
 
-        function setupEvents() {
-            window.addEventListener('keydown', (e) => {
-                keys[e.code] = true;
-                if (e.code.startsWith('Digit')) {
-                    const slot = parseInt(e.code.replace('Digit', '')) - 1;
-                    if (slot >= 0 && slot < 8) { activeHotbarIndex = slot; updateHotbarUI(); }
-                }
-                if (e.code === 'KeyE') toggleInventory();
-                if (e.code === 'Space') {
-                    const now = performance.now();
-                    if (now - lastJumpTime < 250) { isFlying = !isFlying; vel.y = 0; }
-                    lastJumpTime = now;
-                }
-            });
-            window.addEventListener('keyup', (e) => keys[e.code] = false);
-
-            const canvas = renderer.domElement;
-            canvas.addEventListener('mousedown', (e) => {
-                if (!paused) {
-                    if (e.button === 0) handleInteraction(true);
-                    else if (e.button === 2) handleInteraction(false);
-                }
-            });
-
-            if (isTouch) {
-                const zone = document.getElementById('joy-zone');
-                zone.addEventListener('touchstart', (e) => {
-                    const t = e.targetTouches[0];
-                    joy.id = t.identifier;
-                    joy.sx = t.clientX; joy.sy = t.clientY;
-                });
-                window.addEventListener('touchmove', (e) => {
-                    for (let i=0; i<e.changedTouches.length; i++) {
-                        const t = e.changedTouches[i];
-                        if (t.identifier === joy.id) {
-                            joy.x = Math.max(-1, Math.min(1, (t.clientX - joy.sx)/40));
-                            joy.y = Math.max(-1, Math.min(1, (t.clientY - joy.sy)/40));
-                            document.getElementById('joy-nub').style.transform = `translate(calc(-50% + ${joy.x*30}px), calc(-50% + ${joy.y*30}px))`;
-                        } else if (t.identifier === touchState.id) {
-                            const dx = t.clientX - touchState.lx;
-                            const dy = t.clientY - touchState.ly;
-                            playerGroup.rotation.y -= dx * 0.005;
-                            cameraPivot.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraPivot.rotation.x - dy * 0.005));
-                            touchState.lx = t.clientX; touchState.ly = t.clientY;
-                            if (Math.abs(t.clientX - touchState.sx) > 10 || Math.abs(t.clientY - touchState.sy) > 10) touchState.moved = true;
-                        }
-                    }
-                });
-                window.addEventListener('touchend', (e) => {
-                    for (let i=0; i<e.changedTouches.length; i++) {
-                        const t = e.changedTouches[i];
-                        if (t.identifier === joy.id) {
-                            joy.id = null; joy.x = 0; joy.y = 0;
-                            document.getElementById('joy-nub').style.transform = `translate(-50%, -50%)`;
-                        } else if (t.identifier === touchState.id) {
-                            if (!touchState.moved && (performance.now() - touchState.startTime < 300)) handleInteraction(true);
-                            touchState.id = null;
-                        }
-                    }
-                });
-                canvas.addEventListener('touchstart', (e) => {
-                    if (touchState.id === null) {
-                        const t = e.targetTouches[0];
-                        touchState.id = t.identifier;
-                        touchState.lx = t.clientX; touchState.ly = t.clientY;
-                        touchState.sx = t.clientX; touchState.sy = t.clientY;
-                        touchState.moved = false;
-                        touchState.startTime = performance.now();
-                    }
-                });
+        function removeRemotePlayer(pid) {
+            if (otherPlayers[pid]) {
+                scene.remove(otherPlayers[pid].group);
+                delete otherPlayers[pid];
             }
+        }
 
-            document.getElementById('resume-btn').onclick = () => togglePause();
-            document.getElementById('pause-btn').onclick = () => togglePause();
+        function initScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.FogExp2(0x87CEEB, 0.02);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.body.appendChild(renderer.domElement);
+
+            playerGroup = new THREE.Group();
+            playerGroup.position.set(0, 15, 0);
+            cameraPivot = new THREE.Group();
+            playerGroup.add(cameraPivot);
+            scene.add(playerGroup);
+
+            raycaster = new THREE.Raycaster();
+            sunLight = new THREE.DirectionalLight(0xffffff, 1);
+            sunLight.position.set(10, 20, 10);
+            scene.add(sunLight);
+            ambientLight = new THREE.AmbientLight(0x404040, 1);
+            scene.add(ambientLight);
+
+            const loader = new THREE.TextureLoader();
+            atlas = loader.load('https://threejs.org/examples/textures/minecraft/atlas.png');
+            atlas.magFilter = THREE.NearestFilter;
+            atlas.minFilter = THREE.NearestFilter;
+
+            const boxGeo = new THREE.BoxGeometry(1.001, 1.001, 1.001);
+            const boxMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.5 });
+            selectionBox = new THREE.Mesh(boxGeo, boxMat);
+            scene.add(selectionBox);
+
+            setPersistence(auth, browserLocalPersistence).then(() => {
+                onAuthStateChanged(auth, (user) => {
+                    if (user) startGame(user);
+                    else { document.getElementById('loading-text').innerText = 'READY TO CONNECT'; document.getElementById('start-btn').style.display = 'block'; }
+                });
+            });
+
+            clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
+            const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
+            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
+            setupInput(); updateUI();
+            document.getElementById('start-btn').onclick = async () => {
+                const provider = new GoogleAuthProvider();
+                try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
+            };
+            window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+        }
+
+        function loadPlayerModel(skinKey) {
+            const skin = SKINS[skinKey];
+            const loader = new THREE.GLTFLoader();
+            loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
+                if (externalModel) playerGroup.remove(externalModel);
+                externalModel = gltf.scene;
+                externalModel.scale.set(0.2, 0.2, 0.2);
+                externalModel.position.y = -0.1;
+                externalModel.rotation.y = Math.PI;
+                if (skin.color) {
+                    externalModel.traverse(child => { if (child.isMesh) child.material = child.material.clone(); child.material.color?.set(skin.color); });
+                }
+                playerGroup.add(externalModel);
+                mixer = new THREE.AnimationMixer(externalModel);
+                gltf.animations.forEach(clip => { actions[clip.name] = mixer.clipAction(clip); });
+                activeAction = actions['Idle'];
+                activeAction.play();
+                modelLoaded = true;
+                updatePOV();
+            });
+        }
+
+        function updatePOV() {
+            if (povMode === 0) {
+                cameraPivot.position.set(0, PLAYER_HEIGHT, 0);
+                camera.position.set(0, 0, 0);
+                if (externalModel) externalModel.visible = false;
+            } else if (povMode === 1) {
+                cameraPivot.position.set(0, PLAYER_HEIGHT, 0);
+                camera.position.set(0, 0, -povDist);
+                camera.lookAt(playerGroup.position.clone().add(new THREE.Vector3(0, PLAYER_HEIGHT, 0)));
+                if (externalModel) externalModel.visible = true;
+            } else {
+                cameraPivot.position.set(0, PLAYER_HEIGHT, 0);
+                camera.position.set(0, 0, povDist);
+                camera.lookAt(playerGroup.position.clone().add(new THREE.Vector3(0, PLAYER_HEIGHT, 0)));
+                if (externalModel) externalModel.visible = true;
+            }
+        }
+
+        function setupInput() {
+            window.onkeydown = e => keys[e.code] = true;
+            window.onkeyup = e => { keys[e.code] = false; if(e.code === 'Space') lastJumpTime = performance.now(); };
+            
+            const jz = document.getElementById('joy-zone');
+            jz.ontouchstart = e => { joy.id = e.changedTouches[0].identifier; joy.sx = e.changedTouches[0].clientX; joy.sy = e.changedTouches[0].clientY; };
+            jz.ontouchmove = e => {
+                for(let t of e.changedTouches) if(t.identifier === joy.id) {
+                    let dx = t.clientX - joy.sx, dy = t.clientY - joy.sy, d = Math.sqrt(dx*dx+dy*dy);
+                    if(d>50) { dx*=50/d; dy*=50/d; }
+                    joy.x = dx/50; joy.y = dy/50;
+                    document.getElementById('joy-nub').style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                }
+            };
+            jz.ontouchend = () => { joy.id = null; joy.x = 0; joy.y = 0; document.getElementById('joy-nub').style.transform = 'translate(-50%, -50%)'; };
+
+            window.ontouchstart = e => {
+                if(e.target.closest('.ctrl, #hotbar-container, #ui button')) return;
+                const t = e.changedTouches[0];
+                touchState.id = t.identifier; touchState.sx = t.clientX; touchState.sy = t.clientY;
+                touchState.lx = t.clientX; touchState.ly = t.clientY; touchState.moved = false;
+                touchState.startTime = performance.now();
+                touchState.timer = setTimeout(() => { if(!touchState.moved) startMining(); }, 500);
+            };
+            window.ontouchmove = e => {
+                for(let t of e.changedTouches) if(t.identifier === touchState.id) {
+                    let dx = t.clientX - touchState.lx, dy = t.clientY - touchState.ly;
+                    playerGroup.rotation.y -= dx * 0.005;
+                    cameraPivot.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraPivot.rotation.x - dy * 0.005));
+                    touchState.lx = t.clientX; touchState.ly = t.clientY;
+                    if(Math.hypot(t.clientX-touchState.sx, t.clientY-touchState.sy) > 10) { touchState.moved = true; stopMining(); }
+                }
+            };
+            window.ontouchend = e => {
+                for(let t of e.changedTouches) if(t.identifier === touchState.id) {
+                    clearTimeout(touchState.timer); stopMining();
+                    if(!touchState.moved && (performance.now()-touchState.startTime < 500)) handleInteraction(true);
+                    touchState.id = null;
+                }
+            };
+
+            window.onmousedown = e => { if(!paused && e.button === 0) startMining(); if(!paused && e.button === 2) handleInteraction(false); };
+            window.onmouseup = () => stopMining();
+            window.oncontextmenu = e => e.preventDefault();
+            
+            document.getElementById('pause-btn').onclick = () => togglePause(true);
+            document.getElementById('resume-btn').onclick = () => togglePause(false);
+            document.getElementById('quit-btn').onclick = () => location.reload();
+            document.getElementById('inv-btn').onclick = openInventory;
+            document.getElementById('close-inv').onclick = () => document.getElementById('inventory-overlay').style.display = 'none';
+            document.getElementById('shop-btn').onclick = openShop;
+            document.getElementById('close-shop').onclick = () => document.getElementById('shop-overlay').style.display = 'none';
             document.getElementById('chat-toggle-btn').onclick = () => {
-                const chat = document.getElementById('chat-container');
-                chat.style.display = chat.style.display === 'flex' ? 'none' : 'flex';
+                const c = document.getElementById('chat-container');
+                c.style.display = (c.style.display === 'flex' ? 'none' : 'flex');
             };
-            document.getElementById('chat-send-btn').onclick = sendChatMessage;
-            document.getElementById('chat-input').onkeydown = (e) => { if (e.key === 'Enter') sendChatMessage(); };
-            document.getElementById('inv-btn').onclick = toggleInventory;
-            document.getElementById('close-inv').onclick = toggleInventory;
-            document.getElementById('shop-btn').onclick = toggleShop;
-            document.getElementById('close-shop').onclick = toggleShop;
-            document.getElementById('del-mode-btn').onclick = () => {
-                deleteMode = !deleteMode;
-                document.getElementById('del-mode-btn').innerText = `DELETE MODE: ${deleteMode ? 'ON' : 'OFF'}`;
-            };
-            document.getElementById('shop-mode-btn').onclick = () => {
-                shopSellMode = !shopSellMode;
-                document.getElementById('shop-mode-btn').innerText = `MODE: ${shopSellMode ? 'SELL' : 'BUY'}`;
-                renderShop();
-            };
-            document.getElementById('jump-btn').onclick = () => { if (onGround || isFlying) vel.y = 5; };
-            document.getElementById('cam-btn').onclick = () => {
-                povMode = (povMode + 1) % 3;
-                if (povMode === 0) { camera.position.set(0, PLAYER_HEIGHT, 0); camera.lookAt(new THREE.Vector3(0, PLAYER_HEIGHT, -1)); }
-            };
-            document.getElementById('fs-btn').onclick = () => {
-                if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-                else document.exitFullscreen();
-            };
+            document.getElementById('chat-send-btn').onclick = sendChat;
+            document.getElementById('chat-input').onkeydown = e => { if(e.key === 'Enter') sendChat(); };
+            document.getElementById('fs-btn').onclick = () => { if(!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
+            document.getElementById('cam-btn').onclick = () => { povMode = (povMode + 1) % 3; updatePOV(); };
+            document.getElementById('jump-btn').ontouchstart = () => { keys['Space'] = true; };
+            document.getElementById('jump-btn').ontouchend = () => { keys['Space'] = false; lastJumpTime = performance.now(); };
+            document.getElementById('up-btn').ontouchstart = () => isTouchingUp = true;
+            document.getElementById('up-btn').ontouchend = () => isTouchingUp = false;
+            document.getElementById('down-btn').ontouchstart = () => isTouchingDown = true;
+            document.getElementById('down-btn').ontouchend = () => isTouchingDown = false;
+            document.getElementById('del-mode-btn').onclick = () => { deleteMode = !deleteMode; document.getElementById('del-mode-btn').innerText = `DELETE MODE: ${deleteMode?'ON':'OFF'}`; document.getElementById('del-mode-btn').style.background = deleteMode?'#f33':'#a33'; };
+            document.getElementById('shop-mode-btn').onclick = () => { shopSellMode = !shopSellMode; document.getElementById('shop-mode-btn').innerText = `MODE: ${shopSellMode?'SELL':'BUY'}`; document.getElementById('shop-mode-btn').style.background = shopSellMode?'#e67e22':'#2ecc71'; };
         }
 
-        async function handleInteraction(isPrimary) {
-            raycaster.setFromCamera({x:0, y:0}, camera);
-            const intersects = raycaster.intersectObjects(clickables);
-            if (intersects.length > 0) {
-                const hit = intersects[0];
-                const pos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(isPrimary ? -0.5 : 0.5)).floor();
-                const key = `${pos.x},${pos.y},${pos.z}`;
-                
-                if (isPrimary) {
-                    const blockId = world[key];
-                    if (blockId && !BLOCKS[blockId].indestructible) {
-                        if (landClaims[key] && landClaims[key] !== userId) return alert("This land is claimed!");
-                        
-                        await updateWorldDoc(pos.x, pos.y, pos.z, 'BREAK', 0, blockId);
-                        addToInventory(blockId);
-                        if (blockId >= 12 && blockId <= 16) { 
-                            coins += (blockId - 11) * 5; 
-                            updateUI();
-                            saveUserData(); // - Save coins to Firebase
-                        }
-                    }
-                } else {
-                    const activeId = hotbarSlots[activeHotbarIndex];
-                    if (activeId > 0 && !world[key]) {
-                        if (activeId === 100) { 
-                            const claimKey = `${Math.floor(pos.x/16)},${Math.floor(pos.z/16)}`;
-                            if (landClaims[claimKey]) return alert("Chunk already claimed!");
-                            await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', claimKey), { owner: userId, x: pos.x, z: pos.z });
-                        }
-                        await updateWorldDoc(pos.x, pos.y, pos.z, 'PLACE', activeId);
-                        removeFromHotbar(activeHotbarIndex);
-                    }
-                }
-            }
-        }
-
-        async function updateWorldDoc(x, y, z, action, id, prevId = 0) {
-            await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
-                x, y, z, action, id, prevId, timestamp: serverTimestamp()
-            });
-        }
-
-        function addToInventory(id, count = 1) {
-            let slot = inventory.find(s => s && s.id === id);
-            if (slot) slot.count += count;
-            else {
-                const empty = inventory.findIndex(s => s === null);
-                if (empty !== -1) inventory[empty] = { id, count };
-            }
-            // Auto-fill hotbar if needed
-            for (let i=0; i<8; i++) {
-                if (hotbarSlots[i] === 0) {
-                    hotbarSlots[i] = id;
-                    break;
-                }
-            }
-            updateHotbarUI();
-            saveUserData(); // - Save inventory to Firebase
-        }
-
-        function removeFromHotbar(index) {
-            const id = hotbarSlots[index];
-            const invSlot = inventory.find(s => s && s.id === id);
-            if (invSlot) {
-                invSlot.count--;
-                if (invSlot.count <= 0) {
-                    inventory[inventory.indexOf(invSlot)] = null;
-                    hotbarSlots[index] = 0;
-                }
-            }
-            updateHotbarUI();
-            saveUserData(); // - Save inventory change to Firebase
-        }
-
-        async function sendChatMessage() {
+        async function sendChat() {
             const input = document.getElementById('chat-input');
-            const text = input.value.trim();
-            if (text) {
+            const val = input.value.trim();
+            if (val) {
                 await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat'), {
-                    user: userDisplayName, text, timestamp: serverTimestamp()
+                    user: userDisplayName, text: val, timestamp: serverTimestamp()
                 });
                 input.value = '';
             }
         }
 
-        function togglePause() {
-            paused = !paused;
-            document.getElementById('pause-menu').style.display = paused ? 'flex' : 'none';
+        function togglePause(p) {
+            paused = p;
+            document.getElementById('pause-menu').style.display = p ? 'flex' : 'none';
+            if (p) stopMining();
         }
 
-        function toggleInventory() {
-            const inv = document.getElementById('inventory-overlay');
-            const visible = inv.style.display === 'flex';
-            inv.style.display = visible ? 'none' : 'flex';
-            if (!visible) renderInventory();
+        function getChunk(x, z) {
+            const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+            return `${cx},${cz}`;
         }
 
-        function toggleShop() {
-            const shop = document.getElementById('shop-overlay');
-            const visible = shop.style.display === 'flex';
-            shop.style.display = visible ? 'none' : 'flex';
-            if (!visible) renderShop();
-        }
-
-        function renderInventory() {
-            const grid = document.getElementById('inventory-grid');
-            grid.innerHTML = '';
-            inventory.forEach((slot, i) => {
-                const el = document.createElement('div');
-                el.className = 'slot';
-                if (slot) {
-                    const canvas = document.createElement('canvas');
-                    drawItem(canvas, slot.id);
-                    el.appendChild(canvas);
-                    const count = document.createElement('div');
-                    count.className = 'slot-count';
-                    count.innerText = slot.count;
-                    el.appendChild(count);
-                    el.onclick = () => {
-                        if (deleteMode) { inventory[i] = null; renderInventory(); saveUserData(); }
-                        else {
-                            hotbarSlots[activeHotbarIndex] = slot.id;
-                            updateHotbarUI();
-                            toggleInventory();
-                        }
-                    };
-                }
-                grid.appendChild(el);
-            });
-        }
-
-        let currentShopTab = 'blocks';
-        window.switchShopTab = (tab) => {
-            currentShopTab = tab;
-            document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('active'));
-            document.querySelector(`.shop-tab[onclick="switchShopTab('${tab}')"]`).classList.add('active');
-            renderShop();
-        };
-
-        function renderShop() {
-            const grid = document.getElementById('shop-grid');
-            grid.innerHTML = '';
-            
-            if (currentShopTab === 'blocks') {
-                Object.keys(BLOCKS).forEach(id => {
-                    const b = BLOCKS[id];
-                    if (!b.price && !shopSellMode) return;
-                    const el = document.createElement('div');
-                    el.className = 'shop-item';
-                    const canvas = document.createElement('canvas');
-                    drawItem(canvas, id);
-                    el.innerHTML = `<div class="shop-name">${b.name}</div>`;
-                    el.insertBefore(canvas, el.firstChild);
-                    el.innerHTML += `<div class="shop-price">${shopSellMode ? b.sellPrice : b.price}C</div>`;
-                    el.onclick = () => {
-                        if (shopSellMode) {
-                            const invIdx = inventory.findIndex(s => s && s.id == id);
-                            if (invIdx !== -1) {
-                                coins += b.sellPrice;
-                                inventory[invIdx].count--;
-                                if (inventory[invIdx].count <= 0) inventory[invIdx] = null;
-                                updateUI();
-                                renderShop();
-                                saveUserData(); // - Sync after shop activity
-                            }
-                        } else if (coins >= b.price) {
-                            coins -= b.price;
-                            addToInventory(parseInt(id));
-                            updateUI();
-                            saveUserData(); // - Sync after shop activity
-                        }
-                    };
-                    grid.appendChild(el);
-                });
-            } else if (currentShopTab === 'tools') {
-                Object.keys(TOOLS).forEach(id => {
-                    const t = TOOLS[id];
-                    const el = document.createElement('div');
-                    el.className = 'shop-item';
-                    el.innerHTML = `<div class="shop-name">${t.name}</div><div class="shop-price">${t.price}C</div>`;
-                    el.onclick = () => {
-                        if (coins >= t.price) {
-                            coins -= t.price;
-                            activeTool = { ...t, id };
-                            currentMineDelay = 400 * t.speedMod;
-                            updateUI();
-                            saveUserData(); // - Sync after shop activity
-                        }
-                    };
-                    grid.appendChild(el);
-                });
-            } else if (currentShopTab === 'skins') {
-                Object.keys(SKINS).forEach(id => {
-                    const s = SKINS[id];
-                    const el = document.createElement('div');
-                    el.className = 'shop-item';
-                    el.innerHTML = `<div class="shop-name">${s.name}</div><div class="shop-price">${s.price}C</div>`;
-                    el.onclick = () => {
-                        if (coins >= s.price || currentSkin === id) {
-                            if (currentSkin !== id) coins -= s.price;
-                            currentSkin = id;
-                            updateSkin();
-                            updateUI();
-                            saveUserData(); // - Sync after shop activity
-                        }
-                    };
-                    grid.appendChild(el);
-                });
+        function refreshChunk(x, z) {
+            const ck = getChunk(x, z);
+            if (chunkMeshes[ck]) {
+                scene.remove(chunkMeshes[ck]);
+                delete chunkMeshes[ck];
             }
         }
 
-        function drawItem(canvas, id) {
-            canvas.width = 32; canvas.height = 32;
-            const ctx = canvas.getContext('2d');
-            ctx.imageSmoothingEnabled = false;
-            const b = BLOCKS[id];
-            if (!b) return;
-            const loader = new THREE.ImageLoader();
-            loader.load(`https://raw.githubusercontent.com/PolyMarsDev/Voxel-Island/main/textures/${b.files[2]}`, (img) => {
-                ctx.drawImage(img, 0, 0, 32, 32);
-            });
+        function getBlock(x, y, z) {
+            const k = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+            if (world[k] !== undefined) return world[k];
+            if (y < 0) return 9;
+            if (y < 10) return 3;
+            if (y < 13) return 2;
+            if (y === 13) return 1;
+            return 0;
         }
 
-        function updateUI() {
-            document.getElementById('coin-display').innerText = `COINS: ${coins}`;
-        }
-
-        function updateHotbarUI() {
-            const container = document.getElementById('hotbar-slots');
-            container.innerHTML = '';
-            hotbarSlots.forEach((id, i) => {
-                const el = document.createElement('div');
-                el.className = `slot ${i === activeHotbarIndex ? 'active' : ''}`;
-                if (id > 0) {
-                    const canvas = document.createElement('canvas');
-                    drawItem(canvas, id);
-                    el.appendChild(canvas);
-                    const invSlot = inventory.find(s => s && s.id === id);
-                    if (invSlot) {
-                        const count = document.createElement('div');
-                        count.className = 'slot-count';
-                        count.innerText = invSlot.count;
-                        el.appendChild(count);
+        function buildChunk(cx, cz) {
+            const matrix = new THREE.Matrix4();
+            const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: atlas }), CHUNK_SIZE * CHUNK_SIZE * 32);
+            let count = 0;
+            for (let x = 0; x < CHUNK_SIZE; x++) {
+                for (let z = 0; z < CHUNK_SIZE; z++) {
+                    for (let y = 0; y < 32; y++) {
+                        const bx = cx * CHUNK_SIZE + x, bz = cz * CHUNK_SIZE + z;
+                        const id = getBlock(bx, y, bz);
+                        if (id > 0) {
+                            matrix.setPosition(bx, y, bz);
+                            mesh.setMatrixAt(count++, matrix);
+                        }
                     }
                 }
-                el.onclick = () => { activeHotbarIndex = i; updateHotbarUI(); };
-                container.appendChild(el);
-            });
+            }
+            mesh.count = count;
+            chunkMeshes[`${cx},${cz}`] = mesh;
+            scene.add(mesh);
         }
 
-        function updateSkin() {
-            if (!externalModel) return;
-            const s = SKINS[currentSkin];
-            externalModel.traverse(child => {
-                if (child.isMesh) {
-                    if (s.color) child.material.color.setHex(s.color);
-                    else child.material.color.setHex(0xffffff);
+        let mineTimer = null, mineProgress = 0, currentTarget = null;
+        function startMining() {
+            if (paused) return;
+            mineProgress = 0;
+            mineTimer = setInterval(async () => {
+                raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+                const hits = raycaster.intersectObjects(Object.values(chunkMeshes));
+                if (hits.length > 0 && hits[0].distance < 5) {
+                    const p = hits[0].point.clone().add(hits[0].face.normal.clone().multiplyScalar(-0.5));
+                    const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
+                    const id = getBlock(bx, by, bz);
+                    if (id === 9) return;
+                    
+                    const block = BLOCKS[id] || { hardness: 1 };
+                    mineProgress += (100 / (block.hardness * currentMineDelay * 0.1));
+                    document.getElementById('break-progress').style.transform = `translate(-50%, -50%) scale(${mineProgress/100})`;
+                    
+                    if (mineProgress >= 100) {
+                        stopMining();
+                        await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
+                            x: bx, y: by, z: bz, action: 'BREAK', prevId: id, user: userId, timestamp: serverTimestamp()
+                        });
+                        addItemToInventory(id, 1);
+                        savePlayerData();
+                    }
+                } else stopMining();
+            }, 100);
+        }
+
+        function stopMining() {
+            clearInterval(mineTimer);
+            mineProgress = 0;
+            document.getElementById('break-progress').style.transform = `translate(-50%, -50%) scale(0)`;
+        }
+
+        function addItemToInventory(id, count) {
+            let found = false;
+            for (let i = 0; i < 30; i++) {
+                if (inventory[i] && inventory[i].id === id) {
+                    inventory[i].count += count;
+                    found = true;
+                    break;
                 }
-            });
+            }
+            if (!found) {
+                for (let i = 0; i < 30; i++) {
+                    if (!inventory[i]) {
+                        inventory[i] = { id, count };
+                        break;
+                    }
+                }
+            }
+            updateUI();
         }
 
-        function animate() {
-            if (!running) return;
-            requestAnimationFrame(animate);
-            const dt = 0.016;
-
-            if (!paused) {
-                gameTime += dt;
-                const sunAngle = (gameTime / DAY_LENGTH_SECONDS) * Math.PI * 2;
-                sunLight.position.set(Math.cos(sunAngle)*100, Math.sin(sunAngle)*100, 50);
-                sunLight.intensity = Math.max(0, Math.sin(sunAngle)) * 0.8 + 0.2;
-                renderer.setClearColor(new THREE.Color(0x87CEEB).multiplyScalar(sunLight.intensity));
-
-                updatePhysics(dt);
-                if (mixer) mixer.update(dt);
+        async function handleInteraction(isPlace) {
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const hits = raycaster.intersectObjects(Object.values(chunkMeshes));
+            if (hits.length > 0 && hits[0].distance < 5) {
+                const p = hits[0].point.clone().add(hits[0].face.normal.clone().multiplyScalar(isPlace ? 0.5 : -0.5));
+                const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
                 
-                // Selection highlight
-                raycaster.setFromCamera({x:0, y:0}, camera);
-                const intersects = raycaster.intersectObjects(clickables);
-                if (intersects.length > 0) {
-                    const hit = intersects[0];
-                    const pos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(-0.5)).floor();
-                    selectionBox.position.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5);
-                    selectionBox.visible = true;
-                } else selectionBox.visible = false;
-
-                // POV adjustment
-                if (povMode > 0) {
-                    const dist = povMode === 1 ? -povDist : povDist;
-                    camera.position.set(0, PLAYER_HEIGHT + 1, dist);
-                    camera.lookAt(playerGroup.position.clone().add(new THREE.Vector3(0, PLAYER_HEIGHT, 0)));
-                    if (externalModel) externalModel.visible = true;
-                } else {
-                    camera.position.set(0, PLAYER_HEIGHT, 0);
-                    if (externalModel) externalModel.visible = false;
-                }
-            }
-
-            renderer.render(scene, camera);
-        }
-
-        function updatePhysics(dt) {
-            let moveX = 0, moveZ = 0;
-            if (keys['KeyW']) moveZ -= 1;
-            if (keys['KeyS']) moveZ += 1;
-            if (keys['KeyA']) moveX -= 1;
-            if (keys['KeyD']) moveX += 1;
-            
-            if (isTouch) { moveX += joy.x; moveZ -= joy.y; }
-
-            const speed = isFlying ? 15 : 5;
-            const dir = new THREE.Vector3(moveX, 0, moveZ).normalize().applyQuaternion(playerGroup.quaternion).multiplyScalar(speed);
-            
-            vel.x = dir.x;
-            vel.z = dir.z;
-
-            if (isFlying) {
-                if (keys['Space']) vel.y = speed;
-                else if (keys['ShiftLeft']) vel.y = -speed;
-                else vel.y = 0;
-            } else {
-                vel.y -= 15 * dt;
-                if (onGround && keys['Space']) vel.y = 6;
-            }
-
-            const nextPos = playerGroup.position.clone().add(vel.clone().multiplyScalar(dt));
-            
-            // Basic collision
-            onGround = false;
-            const check = (p) => world[`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`];
-            if (!check({x:nextPos.x, y:nextPos.y, z:nextPos.z}) && !check({x:nextPos.x, y:nextPos.y+1, z:nextPos.z})) {
-                playerGroup.position.copy(nextPos);
-            } else {
-                if (vel.y < 0) onGround = true;
-                vel.y = 0;
-            }
-
-            if (playerGroup.position.y < -10) playerGroup.position.set(0, 35, 0);
-
-            // Animation state
-            if (modelLoaded) {
-                const isMoving = Math.abs(vel.x) > 0.1 || Math.abs(vel.z) > 0.1;
-                const nextAction = isMoving ? actions['Walking'] : actions['Idle'];
-                if (activeAction !== nextAction) {
-                    activeAction.fadeOut(0.2);
-                    nextAction.reset().fadeIn(0.2).play();
-                    activeAction = nextAction;
+                if (isPlace) {
+                    const item = inventory[activeHotbarIndex];
+                    if (item && item.count > 0 && BLOCKS[item.id]) {
+                        await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
+                            x: bx, y: by, z: bz, action: 'PLACE', id: item.id, user: userId, timestamp: serverTimestamp()
+                        });
+                        item.count--;
+                        if (item.count <= 0) inventory[activeHotbarIndex] = null;
+                        updateUI();
+                        savePlayerData();
+                    }
                 }
             }
         }
 
-        setPersistence(auth, browserLocalPersistence).then(() => {
-            onAuthStateChanged(auth, (user) => {
-                if (user) startGame(user);
-                else { 
-                    document.getElementById('loading-text').innerText = 'READY TO CONNECT'; 
-                    document.getElementById('start-btn').style.display = 'block'; 
+        function openInventory() {
+            const grid = document.getElementById('inventory-grid');
+            grid.innerHTML = '';
+            inventory.forEach((item, i) => {
+                const slot = document.createElement('div');
+                slot.className = 'slot';
+                if (item) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 32; canvas.height = 32;
+                    drawItemIcon(canvas, item.id);
+                    slot.appendChild(canvas);
+                    const count = document.createElement('div');
+                    count.className = 'slot-count';
+                    count.innerText = item.count;
+                    slot.appendChild(count);
                 }
+                slot.onclick = () => {
+                    if (deleteMode) { inventory[i] = null; }
+                    else if (i >= 8) {
+                        const temp = inventory[activeHotbarIndex];
+                        inventory[activeHotbarIndex] = inventory[i];
+                        inventory[i] = temp;
+                    }
+                    openInventory(); updateUI(); savePlayerData();
+                };
+                grid.appendChild(slot);
             });
-        });
+            document.getElementById('inventory-overlay').style.display = 'flex';
+        }
 
-        clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
-        const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
-        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
-        
-        document.getElementById('start-btn').onclick = async () => {
-            const provider = new GoogleAuthProvider();
-            try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
+        function openShop() {
+            switchShopTab('blocks');
+            document.getElementById('shop-overlay').style.display = 'flex';
+        }
+
+        window.switchShopTab = (tab) => {
+            const grid = document.getElementById('shop-grid');
+            grid.innerHTML = '';
+            document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('active'));
+            event?.target.classList.add('active');
+
+            if (tab === 'blocks') {
+                Object.entries(BLOCKS).forEach(([id, b]) => {
+                    if (!b.price) return;
+                    const item = document.createElement('div');
+                    item.className = 'shop-item';
+                    item.innerHTML = `<div class="shop-name">${b.name}</div><canvas id="shop-icon-${id}" width="32" height="32"></canvas><div class="shop-price">$${shopSellMode?b.sellPrice:b.price}</div>`;
+                    item.onclick = () => {
+                        if (shopSellMode) {
+                            if (removeItemFromInventory(parseInt(id), 1)) { coins += b.sellPrice; }
+                        } else if (coins >= b.price) {
+                            coins -= b.price; addItemToInventory(parseInt(id), 1);
+                        }
+                        updateUI(); savePlayerData(); openShop();
+                    };
+                    grid.appendChild(item);
+                    drawItemIcon(document.getElementById(`shop-icon-${id}`), parseInt(id));
+                });
+            } else if (tab === 'tools') {
+                Object.entries(TOOLS).forEach(([id, t]) => {
+                    const item = document.createElement('div');
+                    item.className = 'shop-item';
+                    item.innerHTML = `<div class="shop-name">${t.name}</div><canvas id="shop-tool-${id}" width="32" height="32"></canvas><div class="shop-price">$${t.price}</div>`;
+                    item.onclick = () => {
+                        if (coins >= t.price) {
+                            coins -= t.price; addItemToInventory(parseInt(id), 1);
+                            updateUI(); savePlayerData();
+                        }
+                    };
+                    grid.appendChild(item);
+                    drawItemIcon(document.getElementById(`shop-tool-${id}`), parseInt(id));
+                });
+            } else if (tab === 'skins') {
+                Object.entries(SKINS).forEach(([id, s]) => {
+                    const item = document.createElement('div');
+                    item.className = 'shop-item';
+                    item.innerHTML = `<div class="shop-name">${s.name}</div><div style="width:20px;height:20px;background:${id==='default'?'#ccc':`#${s.color.toString(16)}`}"></div><div class="shop-price">${s.price}</div>`;
+                    item.onclick = () => {
+                        if (currentSkin === id) return;
+                        if (coins >= s.price) {
+                            coins -= s.price; currentSkin = id;
+                            loadPlayerModel(id); updateUI(); savePlayerData();
+                        }
+                    };
+                    grid.appendChild(item);
+                });
+            }
         };
 
-        window.addEventListener('resize', () => { 
-            camera.aspect = window.innerWidth / window.innerHeight; 
-            camera.updateProjectionMatrix(); 
-            renderer.setSize(window.innerWidth, window.innerHeight); 
-        });
+        function removeItemFromInventory(id, count) {
+            for (let i = 0; i < 30; i++) {
+                if (inventory[i] && inventory[i].id === id && inventory[i].count >= count) {
+                    inventory[i].count -= count;
+                    if (inventory[i].count <= 0) inventory[i] = null;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function updateToolStats() {
+            const item = inventory[activeHotbarIndex];
+            if (item && TOOLS[item.id]) {
+                activeTool = item.id;
+                currentMineDelay = 400 * TOOLS[item.id].speedMod;
+            } else {
+                activeTool = null;
+                currentMineDelay = 400;
+            }
+        }
+
+        function loop() {
+            if (!running || paused) return;
+            const dt = 0.016;
+            
+            let moveX = (keys['KeyD']?1:0) - (keys['KeyA']?1:0) + joy.x;
+            let moveZ = (keys['KeyS']?1:0) - (keys['KeyW']?1:0) + joy.y;
+            
+            const dir = new THREE.Vector3(moveX, 0, moveZ).normalize().applyQuaternion(playerGroup.quaternion);
+            playerGroup.position.add(dir.multiplyScalar(5 * dt));
+            
+            if (keys['Space'] && onGround) { vel.y = 5; onGround = false; }
+            vel.y -= 15 * dt;
+            playerGroup.position.y += vel.y * dt;
+            
+            if (playerGroup.position.y < 14) { playerGroup.position.y = 14; vel.y = 0; onGround = true; }
+            
+            const cx = Math.floor(playerGroup.position.x / CHUNK_SIZE), cz = Math.floor(playerGroup.position.z / CHUNK_SIZE);
+            for (let x = -RENDER_DIST; x <= RENDER_DIST; x++) {
+                for (let z = -RENDER_DIST; z <= RENDER_DIST; z++) {
+                    if (!chunkMeshes[`${cx+x},${cz+z}`]) buildChunk(cx+x, cz+z);
+                }
+            }
+            
+            if (mixer) mixer.update(dt);
+            if (modelLoaded) {
+                const isMoving = Math.abs(moveX) > 0.1 || Math.abs(moveZ) > 0.1;
+                const targetAct = isMoving ? actions['Walking'] : actions['Idle'];
+                if (activeAction !== targetAct) {
+                    activeAction.fadeOut(0.2);
+                    targetAct.reset().fadeIn(0.2).play();
+                    activeAction = targetAct;
+                }
+            }
+
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const hits = raycaster.intersectObjects(Object.values(chunkMeshes));
+            if (hits.length > 0 && hits[0].distance < 5) {
+                const p = hits[0].point.clone().add(hits[0].face.normal.clone().multiplyScalar(-0.5));
+                selectionBox.position.set(Math.floor(p.x)+0.5, Math.floor(p.y)+0.5, Math.floor(p.z)+0.5);
+                selectionBox.visible = true;
+            } else selectionBox.visible = false;
+
+            updateToolStats();
+            renderer.render(scene, camera);
+            requestAnimationFrame(loop);
+        }
+
+        initScene();
     </script>
 </body>
 </html>
