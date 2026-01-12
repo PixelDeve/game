@@ -500,7 +500,10 @@
                 actions: pActions,
                 currentAction: 'Idle',
                 targetPos: new THREE.Vector3(data.x, data.y, data.z), 
-                targetRot: data.ry 
+                targetRot: data.ry,
+                isPlaceholder: !modelLoaded,
+                data: data,
+                lastSeenTime: Date.now()
             };
             group.position.set(data.x, data.y, data.z);
         }
@@ -510,6 +513,8 @@
             if (!p) return;
             p.targetPos.set(data.x, data.y, data.z);
             p.targetRot = data.ry;
+            if(data.lastSeen) p.lastSeenTime = data.lastSeen.toMillis ? data.lastSeen.toMillis() : Date.now();
+            p.data = data;
             
             if (p.mixer) {
                 const isMoving = data.moving || p.targetPos.distanceTo(p.group.position) > 0.05;
@@ -538,8 +543,10 @@
         }
 
         function updateRemotePlayersVisuals(dt) {
+            const now = Date.now();
             for (let pid in otherPlayers) {
                 const p = otherPlayers[pid];
+                if(p.lastSeenTime && (now - p.lastSeenTime > 20000)) { removeRemotePlayer(pid); continue; }
                 p.group.position.lerp(p.targetPos, 10 * dt);
                 p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
                 if (p.mixer) p.mixer.update(dt);
@@ -1266,6 +1273,15 @@
                 externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
                 playerGroup.add(externalModel);
                 modelLoaded = true;
+
+                // Fix: Upgrade any existing placeholders
+                for(let pid in otherPlayers) {
+                    if(otherPlayers[pid].isPlaceholder) {
+                        const d = otherPlayers[pid].data;
+                        removeRemotePlayer(pid);
+                        createRemotePlayer(pid, d);
+                    }
+                }
 
                 mixer = new THREE.AnimationMixer(externalModel); 
                 gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
