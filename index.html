@@ -248,7 +248,11 @@
             'default': { name: 'Robot', price: 0, file: 'RobotExpressive.glb' },
             'blue': { name: 'Blue Bot', price: 200, file: 'RobotExpressive.glb', color: 0x0000ff },
             'red': { name: 'Red Bot', price: 200, file: 'RobotExpressive.glb', color: 0xff0000 },
-            'gold': { name: 'Gold Bot', price: 1000, file: 'RobotExpressive.glb', color: 0xFFD700 }
+            'gold': { name: 'Gold Bot', price: 1000, file: 'RobotExpressive.glb', color: 0xFFD700 },
+            // External GLB skins
+            'skin1': { name: 'Knight', price: 500, file: 'models/model1.glb' },
+            'skin2': { name: 'Astronaut', price: 750, file: 'models/model2.glb' },
+            'skin3': { name: 'Viking', price: 1000, file: 'models/model3.glb' }
         };
 
         const BLOCKS = {
@@ -460,27 +464,31 @@
             
             const skinData = SKINS[data.skin || 'default'];
             
-            if (modelLoaded && externalModel) {
-                model = THREE.SkeletonUtils.clone(externalModel);
-                model.position.y = -1.6;
-                model.traverse(n => { 
-                    if(n.isMesh) { 
-                        n.castShadow = true; n.receiveShadow = true; 
-                        if (skinData && skinData.color) {
-                             if(n.material) n.material = n.material.clone();
-                             if(n.material.color) n.material.color.setHex(skinData.color);
-                        }
-                    } 
+            // Check if user has an external GLB or the default Robot
+            if (skinData && skinData.file.includes('.glb')) {
+                new THREE.GLTFLoader().load(skinData.file, (gltf) => {
+                    model = gltf.scene;
+                    model.scale.set(0.4, 0.4, 0.4);
+                    model.position.y = -1.6;
+                    model.traverse(n => { 
+                        if(n.isMesh) { 
+                            n.castShadow = true; n.receiveShadow = true; 
+                            if (skinData.color) {
+                                if(n.material) n.material = n.material.clone();
+                                if(n.material.color) n.material.color.setHex(skinData.color);
+                            }
+                        } 
+                    });
+                    group.add(model);
+                    pMixer = new THREE.AnimationMixer(model);
+                    gltf.animations.forEach(clip => { pActions[clip.name] = pMixer.clipAction(clip); });
+                    if(pActions['Idle']) pActions['Idle'].play();
+                    
+                    p.mixer = pMixer;
+                    p.actions = pActions;
                 });
-                group.add(model);
-                
-                pMixer = new THREE.AnimationMixer(model);
-                const originalAnimations = externalModel.animations || [];
-                originalAnimations.forEach(clip => {
-                    pActions[clip.name] = pMixer.clipAction(clip);
-                });
-                if(pActions['Idle']) pActions['Idle'].play();
             } else {
+                // Fallback box
                 model = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
                 model.position.y = -0.8;
                 model.castShadow = true; model.receiveShadow = true;
@@ -492,7 +500,7 @@
             group.add(nameTag);
 
             scene.add(group);
-            otherPlayers[pid] = { 
+            const p = { 
                 group, 
                 model, 
                 nameTag,
@@ -501,10 +509,10 @@
                 currentAction: 'Idle',
                 targetPos: new THREE.Vector3(data.x, data.y, data.z), 
                 targetRot: data.ry,
-                isPlaceholder: !modelLoaded,
                 data: data,
                 lastSeenTime: Date.now()
             };
+            otherPlayers[pid] = p;
             group.position.set(data.x, data.y, data.z);
         }
 
@@ -513,7 +521,8 @@
             if (!p) return;
             p.targetPos.set(data.x, data.y, data.z);
             p.targetRot = data.ry;
-            if(data.lastSeen) p.lastSeenTime = data.lastSeen.toMillis ? data.lastSeen.toMillis() : Date.now();
+            // Update timestamp whenever we receive data from Firebase
+            p.lastSeenTime = Date.now();
             p.data = data;
             
             if (p.mixer) {
@@ -544,9 +553,17 @@
 
         function updateRemotePlayersVisuals(dt) {
             const now = Date.now();
+            const TIMEOUT_THRESHOLD = 10000; // 10 seconds of no data = offline
+
             for (let pid in otherPlayers) {
                 const p = otherPlayers[pid];
-                if(p.lastSeenTime && (now - p.lastSeenTime > 20000)) { removeRemotePlayer(pid); continue; }
+                
+                // FIX: If the player hasn't updated in 10 seconds, remove them (Name tag and model will vanish)
+                if (now - p.lastSeenTime > TIMEOUT_THRESHOLD) {
+                    removeRemotePlayer(pid);
+                    continue;
+                }
+
                 p.group.position.lerp(p.targetPos, 10 * dt);
                 p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
                 if (p.mixer) p.mixer.update(dt);
@@ -1136,16 +1153,39 @@
             if(coins >= s.price) {
                 coins -= s.price;
                 currentSkin = id;
-                updateCoinDisplay(); saveGame();
-                alert("Skin Equipped!");
-                if (externalModel) {
-                     externalModel.traverse(n => {
-                        if(n.isMesh) {
-                            if(n.material) n.material = n.material.clone();
-                            if(n.material.color) n.material.color.setHex(s.color || 0xFFFFFF);
-                        }
-                     });
+                updateCoinDisplay(); 
+                saveGame();
+                
+                // Switch the local player model immediately
+                if (playerGroup && s.file) {
+                    // Remove current local model
+                    playerGroup.remove(externalModel);
+                    
+                    new THREE.GLTFLoader().load(s.file, (gltf) => {
+                        externalModel = gltf.scene;
+                        externalModel.animations = gltf.animations;
+                        externalModel.scale.set(0.4, 0.4, 0.4); 
+                        externalModel.rotation.y = Math.PI; 
+                        externalModel.position.y = -1.6;
+                        externalModel.traverse(n => { 
+                            if(n.isMesh) { 
+                                n.castShadow = true; n.receiveShadow = true; 
+                                if (s.color) {
+                                    if(n.material) n.material = n.material.clone();
+                                    if(n.material.color) n.material.color.setHex(s.color);
+                                }
+                            } 
+                        }); 
+                        playerGroup.add(externalModel);
+                        
+                        mixer = new THREE.AnimationMixer(externalModel); 
+                        actions = {};
+                        gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                        if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
+                        updatePOV();
+                    });
                 }
+                alert("Skin " + s.name + " Equipped!");
             }
         }
 
@@ -1215,15 +1255,34 @@
             document.getElementById('loading').style.display = 'none';
             await loadGame();
             
-            if(currentSkin && SKINS[currentSkin] && externalModel) {
+            // Re-load correct skin for local player
+            if(currentSkin && SKINS[currentSkin]) {
                  const s = SKINS[currentSkin];
-                 externalModel.traverse(n => {
-                    if(n.isMesh && s.color) {
-                        if(n.material) n.material = n.material.clone();
-                        if(n.material.color) n.material.color.setHex(s.color);
-                    }
+                 new THREE.GLTFLoader().load(s.file, (gltf) => {
+                    if (externalModel) playerGroup.remove(externalModel);
+                    externalModel = gltf.scene;
+                    externalModel.animations = gltf.animations;
+                    externalModel.scale.set(0.4, 0.4, 0.4); 
+                    externalModel.rotation.y = Math.PI; 
+                    externalModel.position.y = -1.6;
+                    externalModel.traverse(n => { 
+                        if(n.isMesh) { 
+                            n.castShadow = true; n.receiveShadow = true; 
+                            if (s.color) {
+                                if(n.material) n.material = n.material.clone();
+                                if(n.material.color) n.material.color.setHex(s.color);
+                            }
+                        } 
+                    }); 
+                    playerGroup.add(externalModel);
+                    mixer = new THREE.AnimationMixer(externalModel); 
+                    actions = {};
+                    gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                    if(actions['Idle']) actions['Idle'].play();
+                    updatePOV();
                  });
             }
+
             if(activeTool) currentMineDelay = 400 * activeTool.speedMod;
 
             initNetwork();
@@ -1265,6 +1324,8 @@
 
             raycaster = new THREE.Raycaster(); selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
             scene.add(selectionBox); 
+            
+            // Initial loader for the default robot
             new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
                 externalModel = gltf.scene; 
                 externalModel.animations = gltf.animations;
@@ -1273,15 +1334,6 @@
                 externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
                 playerGroup.add(externalModel);
                 modelLoaded = true;
-
-                // Fix: Upgrade any existing placeholders
-                for(let pid in otherPlayers) {
-                    if(otherPlayers[pid].isPlaceholder) {
-                        const d = otherPlayers[pid].data;
-                        removeRemotePlayer(pid);
-                        createRemotePlayer(pid, d);
-                    }
-                }
 
                 mixer = new THREE.AnimationMixer(externalModel); 
                 gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
