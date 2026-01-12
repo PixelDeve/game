@@ -235,6 +235,7 @@
         let shopSellMode = false;
         let landClaims = {}; 
         let currentSkin = 'default';
+        let ownedSkins = ['default']; // Default skin is always owned
         let activeTool = null;
 
         const TOOLS = {
@@ -255,7 +256,7 @@
         };
 
         const BLOCKS = {
-            1: { name: 'Grass', price: 4, sellPrice: 999999, files: ['grass_side.png', 'grass_side.png', 'grass_top.png', 'dirt.png', 'grass_side.png', 'grass_side.png'], hardness: 0.6 },
+            1: { name: 'Grass', price: 4, sellPrice: 1, files: ['grass_side.png', 'grass_side.png', 'grass_top.png', 'dirt.png', 'grass_side.png', 'grass_side.png'], hardness: 0.6 },
             2: { name: 'Dirt', price: 2, sellPrice: 1, files: ['dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png'], hardness: 0.5 },
             3: { name: 'Stone', price: 5, sellPrice: 2, files: ['stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png'], hardness: 1.5 },
             4: { name: 'Log', price: 5, sellPrice: 2, files: ['log_side.png', 'log_side.png', 'log_top.png', 'log_top.png', 'log_side.png', 'log_side.png'], hardness: 2.0 },
@@ -520,6 +521,9 @@
                         otherPlayers[pid].mixer = pMixer;
                         otherPlayers[pid].actions = pActions;
                     }
+                }, undefined, (error) => {
+                    console.error("Failed to load model for player " + pid, error);
+                    // Keep placeholder if failed
                 });
             } else {
                 // Fallback box
@@ -632,6 +636,7 @@
                     inventory: inventory,
                     coins: coins,
                     currentSkin: currentSkin,
+                    ownedSkins: ownedSkins,
                     activeTool: activeTool
                 }, { merge: true });
             }
@@ -652,6 +657,7 @@
                         inventory = saved.inventory || inventory;
                         coins = saved.coins || 0;
                         currentSkin = saved.currentSkin || 'default';
+                        ownedSkins = saved.ownedSkins || ['default'];
                         activeTool = saved.activeTool || null;
                     }
                 } catch(e) { console.error(e); }
@@ -1121,12 +1127,16 @@
             } else if(tab === 'skins') {
                 Object.keys(SKINS).forEach(id => {
                     const s = SKINS[id];
-                    createShopItem(grid, s.name, s.price, s, 'skin', () => buySkin(id), (e) => e.preventDefault());
+                    const isOwned = ownedSkins.includes(id);
+                    const label = isOwned ? "EQUIP" : s.price + '¢';
+                    const color = isOwned ? '#2ecc71' : '#FFD700';
+                    
+                    createShopItem(grid, s.name, label, s, 'skin', () => buySkin(id), (e) => e.preventDefault(), color);
                 });
             }
         };
 
-        function createShopItem(grid, name, price, itemData, type, onClick, onRightClick) {
+        function createShopItem(grid, name, priceLabel, itemData, type, onClick, onRightClick, priceColor = '#FFD700') {
             const el = document.createElement('div'); el.className = 'shop-item';
             
             if(type === 'block' && itemData.tiles && atlas && atlas.image) {
@@ -1140,7 +1150,10 @@
             }
 
             const nameEl = document.createElement('div'); nameEl.className = 'shop-name'; nameEl.innerText = name; el.appendChild(nameEl);
-            const priceEl = document.createElement('div'); priceEl.className = 'shop-price'; priceEl.innerText = price + '¢'; el.appendChild(priceEl);
+            const priceEl = document.createElement('div'); priceEl.className = 'shop-price'; 
+            priceEl.innerText = priceLabel; 
+            priceEl.style.color = priceColor;
+            el.appendChild(priceEl);
             
             el.onclick = (e) => {
                 if (shopSellMode) onRightClick(e);
@@ -1184,43 +1197,65 @@
 
         function buySkin(id) {
             const s = SKINS[id];
+            // Check if already owned
+            if (ownedSkins.includes(id)) {
+                equipSkin(id);
+                return;
+            }
+
             if(coins >= s.price) {
                 coins -= s.price;
-                currentSkin = id;
+                ownedSkins.push(id);
+                equipSkin(id);
                 updateCoinDisplay(); 
                 saveGame();
-                
-                // Switch the local player model immediately
-                if (playerGroup && s.file) {
-                    // Remove current local model
-                    playerGroup.remove(externalModel);
-                    
-                    new THREE.GLTFLoader().load(s.file, (gltf) => {
-                        externalModel = gltf.scene;
-                        externalModel.animations = gltf.animations;
-                        externalModel.scale.set(0.4, 0.4, 0.4); 
-                        externalModel.rotation.y = Math.PI; 
-                        externalModel.position.y = -1.6;
-                        externalModel.traverse(n => { 
-                            if(n.isMesh) { 
-                                n.castShadow = true; n.receiveShadow = true; 
-                                if (s.color) {
-                                    if(n.material) n.material = n.material.clone();
-                                    if(n.material.color) n.material.color.setHex(s.color);
-                                }
-                            } 
-                        }); 
-                        playerGroup.add(externalModel);
-                        
-                        mixer = new THREE.AnimationMixer(externalModel); 
-                        actions = {};
-                        gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
-                        if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
-                        updatePOV();
-                    });
+                // Refresh shop to show "EQUIP" button
+                if (document.getElementById('shop-overlay').style.display === 'flex') {
+                    switchShopTab('skins');
                 }
-                alert("Skin " + s.name + " Equipped!");
+            } else {
+                alert("Not enough coins!");
             }
+        }
+
+        function equipSkin(id) {
+            const s = SKINS[id];
+            currentSkin = id;
+            saveGame();
+            
+            // Switch the local player model immediately
+            if (playerGroup && s.file) {
+                // Remove current local model
+                playerGroup.remove(externalModel);
+                
+                new THREE.GLTFLoader().load(s.file, (gltf) => {
+                    externalModel = gltf.scene;
+                    externalModel.animations = gltf.animations;
+                    externalModel.scale.set(0.4, 0.4, 0.4); 
+                    externalModel.rotation.y = Math.PI; 
+                    externalModel.position.y = -1.6;
+                    externalModel.traverse(n => { 
+                        if(n.isMesh) { 
+                            n.castShadow = true; n.receiveShadow = true; 
+                            if (s.color) {
+                                if(n.material) n.material = n.material.clone();
+                                if(n.material.color) n.material.color.setHex(s.color);
+                            }
+                        } 
+                    }); 
+                    playerGroup.add(externalModel);
+                    
+                    mixer = new THREE.AnimationMixer(externalModel); 
+                    actions = {};
+                    gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                    if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
+                    updatePOV();
+                }, undefined, (err) => {
+                    console.error("Failed to load local skin: ", err);
+                    alert("Failed to load model file. Check 'models' folder.");
+                });
+            }
+            alert("Skin " + s.name + " Equipped!");
         }
 
         function updateCoinDisplay() { document.getElementById('coin-display').innerText = `COINS: ${coins}`; }
@@ -1314,6 +1349,8 @@
                     gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
                     if(actions['Idle']) actions['Idle'].play();
                     updatePOV();
+                 }, undefined, (err) => {
+                     console.error("Local player model load failed", err);
                  });
             }
 
