@@ -245,18 +245,17 @@
         };
 
         const SKINS = {
-            'default': { name: 'Robot', price: 0, file: 'RobotExpressive.glb' },
-            'blue': { name: 'Blue Bot', price: 200, file: 'RobotExpressive.glb', color: 0x0000ff },
-            'red': { name: 'Red Bot', price: 200, file: 'RobotExpressive.glb', color: 0xff0000 },
-            'gold': { name: 'Gold Bot', price: 1000, file: 'RobotExpressive.glb', color: 0xFFD700 },
-            // External GLB skins
+            'default': { name: 'Robot', price: 0, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb' },
+            'blue': { name: 'Blue Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0x0000ff },
+            'red': { name: 'Red Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xff0000 },
+            'gold': { name: 'Gold Bot', price: 1000, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xFFD700 },
             'skin1': { name: 'Knight', price: 500, file: 'models/model1.glb' },
             'skin2': { name: 'Astronaut', price: 750, file: 'models/model2.glb' },
             'skin3': { name: 'Viking', price: 1000, file: 'models/model3.glb' }
         };
 
         const BLOCKS = {
-            1: { name: 'Grass', price: 4, sellPrice: 1, files: ['grass_side.png', 'grass_side.png', 'grass_top.png', 'dirt.png', 'grass_side.png', 'grass_side.png'], hardness: 0.6 },
+            1: { name: 'Grass', price: 4, sellPrice: 999999, files: ['grass_side.png', 'grass_side.png', 'grass_top.png', 'dirt.png', 'grass_side.png', 'grass_side.png'], hardness: 0.6 },
             2: { name: 'Dirt', price: 2, sellPrice: 1, files: ['dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png', 'dirt.png'], hardness: 0.5 },
             3: { name: 'Stone', price: 5, sellPrice: 2, files: ['stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png', 'stone.png'], hardness: 1.5 },
             4: { name: 'Log', price: 5, sellPrice: 2, files: ['log_side.png', 'log_side.png', 'log_top.png', 'log_top.png', 'log_side.png', 'log_side.png'], hardness: 2.0 },
@@ -464,9 +463,42 @@
             
             const skinData = SKINS[data.skin || 'default'];
             
-            // Check if user has an external GLB or the default Robot
-            if (skinData && skinData.file.includes('.glb')) {
-                new THREE.GLTFLoader().load(skinData.file, (gltf) => {
+            // OPTIMIZATION: If default robot, clone existing to avoid re-downloading
+            if ((!data.skin || data.skin === 'default') && modelLoaded && externalModel) {
+                model = THREE.SkeletonUtils.clone(externalModel);
+                model.position.y = -1.6;
+                model.traverse(n => { 
+                    if(n.isMesh) { 
+                        n.castShadow = true; n.receiveShadow = true; 
+                        if (skinData && skinData.color) {
+                             if(n.material) n.material = n.material.clone();
+                             if(n.material.color) n.material.color.setHex(skinData.color);
+                        }
+                    } 
+                });
+                group.add(model);
+                
+                pMixer = new THREE.AnimationMixer(model);
+                const originalAnimations = externalModel.animations || [];
+                originalAnimations.forEach(clip => {
+                    pActions[clip.name] = pMixer.clipAction(clip);
+                });
+                if(pActions['Idle']) pActions['Idle'].play();
+            } else if (skinData && skinData.file) {
+                // Custom skin or clone failed - Load it
+                // Add placeholder box while loading
+                const placeholder = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x888888}));
+                placeholder.position.y = -0.8;
+                group.add(placeholder);
+
+                // Handle default skin URL safety if passed as raw string
+                let url = skinData.file;
+                if (data.skin === 'default' && !url.startsWith('http')) {
+                     url = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
+                }
+
+                new THREE.GLTFLoader().load(url, (gltf) => {
+                    group.remove(placeholder);
                     model = gltf.scene;
                     model.scale.set(0.4, 0.4, 0.4);
                     model.position.y = -1.6;
@@ -484,8 +516,10 @@
                     gltf.animations.forEach(clip => { pActions[clip.name] = pMixer.clipAction(clip); });
                     if(pActions['Idle']) pActions['Idle'].play();
                     
-                    p.mixer = pMixer;
-                    p.actions = pActions;
+                    if(otherPlayers[pid]) {
+                        otherPlayers[pid].mixer = pMixer;
+                        otherPlayers[pid].actions = pActions;
+                    }
                 });
             } else {
                 // Fallback box
@@ -558,7 +592,7 @@
             for (let pid in otherPlayers) {
                 const p = otherPlayers[pid];
                 
-                // FIX: If the player hasn't updated in 10 seconds, remove them (Name tag and model will vanish)
+                // If player hasn't updated in 10s, remove them
                 if (now - p.lastSeenTime > TIMEOUT_THRESHOLD) {
                     removeRemotePlayer(pid);
                     continue;
