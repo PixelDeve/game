@@ -250,9 +250,9 @@
             'blue': { name: 'Blue Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0x0000ff },
             'red': { name: 'Red Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xff0000 },
             'gold': { name: 'Gold Bot', price: 1000, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xFFD700 },
-            'skin1': { name: 'Knight', price: 500, file: 'models/model1.glb' },
-            'skin2': { name: 'Astronaut', price: 750, file: 'models/model2.glb' },
-            'skin3': { name: 'Viking', price: 1000, file: 'models/model3.glb' }
+            'skin1': { name: 'Knight', price: 500, file: 'models/model1.glb', scale: 0.8 },
+            'skin2': { name: 'Astronaut', price: 750, file: 'models/model2.glb', scale: 0.8 },
+            'skin3': { name: 'Viking', price: 1000, file: 'models/model3.glb', scale: 0.8 }
         };
 
         const BLOCKS = {
@@ -501,7 +501,11 @@
                 new THREE.GLTFLoader().load(url, (gltf) => {
                     group.remove(placeholder);
                     model = gltf.scene;
-                    model.scale.set(0.4, 0.4, 0.4);
+                    
+                    // Fixed scaling and animation normalization for custom skins
+                    const scale = skinData.scale || 0.4;
+                    model.scale.set(scale, scale, scale);
+                    
                     model.position.y = -1.6;
                     model.traverse(n => { 
                         if(n.isMesh) { 
@@ -514,7 +518,14 @@
                     });
                     group.add(model);
                     pMixer = new THREE.AnimationMixer(model);
-                    gltf.animations.forEach(clip => { pActions[clip.name] = pMixer.clipAction(clip); });
+                    
+                    // Rename lowercase animations to expected capitalized format
+                    gltf.animations.forEach(clip => { 
+                        if(clip.name.toLowerCase() === 'idle') clip.name = 'Idle';
+                        if(clip.name.toLowerCase() === 'walking' || clip.name.toLowerCase() === 'run') clip.name = 'Walking';
+                        pActions[clip.name] = pMixer.clipAction(clip); 
+                    });
+                    
                     if(pActions['Idle']) pActions['Idle'].play();
                     
                     if(otherPlayers[pid]) {
@@ -1280,8 +1291,11 @@
                 
                 new THREE.GLTFLoader().load(s.file, (gltf) => {
                     externalModel = gltf.scene;
-                    externalModel.animations = gltf.animations;
-                    externalModel.scale.set(0.4, 0.4, 0.4); 
+                    
+                    // Fixed scaling logic here
+                    const scale = s.scale || 0.4;
+                    externalModel.scale.set(scale, scale, scale); 
+                    
                     externalModel.rotation.y = Math.PI; 
                     externalModel.position.y = -1.6;
                     externalModel.traverse(n => { 
@@ -1297,7 +1311,12 @@
                     
                     mixer = new THREE.AnimationMixer(externalModel); 
                     actions = {};
-                    gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                    // Renaming animations for consistency
+                    gltf.animations.forEach((clip) => { 
+                        if(clip.name.toLowerCase() === 'idle') clip.name = 'Idle';
+                        if(clip.name.toLowerCase() === 'walking' || clip.name.toLowerCase() === 'run') clip.name = 'Walking';
+                        actions[clip.name] = mixer.clipAction(clip); 
+                    });
                     if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
                     updatePOV();
                 }, undefined, (err) => {
@@ -1380,8 +1399,11 @@
                  new THREE.GLTFLoader().load(s.file, (gltf) => {
                     if (externalModel) playerGroup.remove(externalModel);
                     externalModel = gltf.scene;
-                    externalModel.animations = gltf.animations;
-                    externalModel.scale.set(0.4, 0.4, 0.4); 
+                    
+                    // Fixed scaling logic here
+                    const scale = s.scale || 0.4;
+                    externalModel.scale.set(scale, scale, scale); 
+                    
                     externalModel.rotation.y = Math.PI; 
                     externalModel.position.y = -1.6;
                     externalModel.traverse(n => { 
@@ -1396,7 +1418,14 @@
                     playerGroup.add(externalModel);
                     mixer = new THREE.AnimationMixer(externalModel); 
                     actions = {};
-                    gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                    
+                    // Rename animations for consistency
+                    gltf.animations.forEach((clip) => { 
+                        if(clip.name.toLowerCase() === 'idle') clip.name = 'Idle';
+                        if(clip.name.toLowerCase() === 'walking' || clip.name.toLowerCase() === 'run') clip.name = 'Walking';
+                        actions[clip.name] = mixer.clipAction(clip); 
+                    });
+                    
                     if(actions['Idle']) actions['Idle'].play();
                     updatePOV();
                  }, undefined, (err) => {
@@ -1449,6 +1478,8 @@
             // Initial loader for the default robot
             new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
                 externalModel = gltf.scene; 
+                // Don't normalize animations for the default robot here as they are already correct
+                // And this is just the loading screen robot
                 externalModel.animations = gltf.animations;
                 externalModel.scale.set(0.4, 0.4, 0.4); 
                 externalModel.rotation.y = Math.PI; 
