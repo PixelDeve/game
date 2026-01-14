@@ -250,9 +250,9 @@
             'blue': { name: 'Blue Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0x0000ff },
             'red': { name: 'Red Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xff0000 },
             'gold': { name: 'Gold Bot', price: 1000, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xFFD700 },
-            'skin1': { name: 'Knight', price: 500, file: 'models/model1.glb', scale: 2.5 },
-            'skin2': { name: 'Astronaut', price: 750, file: 'models/model2.glb', scale: 2.5 },
-            'skin3': { name: 'Viking', price: 1000, file: 'models/model3.glb', scale: 2.5 }
+            'skin1': { name: 'Knight', price: 500, file: 'models/model1.glb', scale: 2.0 },
+            'skin2': { name: 'Astronaut', price: 750, file: 'models/model2.glb', scale: 2.0 },
+            'skin3': { name: 'Viking', price: 1000, file: 'models/model3.glb', scale: 2.0 }
         };
 
         const BLOCKS = {
@@ -503,8 +503,17 @@
                     model = gltf.scene;
                     
                     // Fixed scaling and animation normalization for custom skins
-                    const scale = skinData.scale || 0.4;
-                    model.scale.set(scale, scale, scale);
+                    const bbox = new THREE.Box3().setFromObject(model);
+                    const size = new THREE.Vector3();
+                    bbox.getSize(size);
+                    const h = size.y;
+                    const targetH = skinData.scale ? skinData.scale : 2.0; 
+                    if (h > 0) {
+                        const s = targetH / h;
+                        model.scale.set(s, s, s);
+                    } else {
+                        model.scale.set(0.4, 0.4, 0.4);
+                    }
                     
                     model.position.y = -1.6;
                     model.traverse(n => { 
@@ -1295,8 +1304,17 @@
                     externalModel = gltf.scene;
                     
                     // Fixed scaling logic here
-                    const scale = s.scale || 0.4;
-                    externalModel.scale.set(scale, scale, scale); 
+                    const bbox = new THREE.Box3().setFromObject(externalModel);
+                    const size = new THREE.Vector3();
+                    bbox.getSize(size);
+                    const h = size.y;
+                    const targetH = s.scale ? s.scale : 2.0;
+                    if (h > 0) {
+                        const scale = targetH / h;
+                        externalModel.scale.set(scale, scale, scale);
+                    } else {
+                        externalModel.scale.set(0.4, 0.4, 0.4);
+                    }
                     
                     externalModel.rotation.y = Math.PI; 
                     externalModel.position.y = -1.6;
@@ -1355,8 +1373,10 @@
         function updateWorld() {
             const px = Math.floor(playerGroup.position.x/CHUNK_SIZE), pz = Math.floor(playerGroup.position.z/CHUNK_SIZE);
             for(let x=px-RENDER_DIST; x<=px+RENDER_DIST; x++) {
+                for(let x=px-RENDER_DIST; x<=px+RENDER_DIST; x++) {
                 for(let z=pz-RENDER_DIST; z<=pz+RENDER_DIST; z++) {
                     const k = `${x},${z}`; if(!chunkMeshes[k]) { const m = buildChunk(x, z); if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }}
+                }
                 }
             }
         }
@@ -1405,8 +1425,13 @@
                     externalModel = gltf.scene;
                     
                     // Fixed scaling logic here
-                    const scale = s.scale || 0.4;
-                    externalModel.scale.set(scale, scale, scale); 
+                    const bbox = new THREE.Box3().setFromObject(externalModel);
+                    const size = new THREE.Vector3();
+                    bbox.getSize(size);
+                    const h = size.y;
+                    const targetH = s.scale ? s.scale : 2.0;
+                    const scale = (h > 0) ? (targetH / h) : 0.4;
+                    externalModel.scale.set(scale, scale, scale);
                     
                     externalModel.rotation.y = Math.PI; 
                     externalModel.position.y = -1.6;
@@ -1487,7 +1512,19 @@
                 // Don't normalize animations for the default robot here as they are already correct
                 // And this is just the loading screen robot
                 externalModel.animations = gltf.animations;
-                externalModel.scale.set(0.4, 0.4, 0.4); 
+                
+                // Fixed scaling for default robot
+                const bbox = new THREE.Box3().setFromObject(externalModel);
+                const size = new THREE.Vector3();
+                bbox.getSize(size);
+                const h = size.y;
+                if (h > 0) {
+                    const s = 2.0 / h; // Default robot 2 blocks tall
+                    externalModel.scale.set(s, s, s);
+                } else {
+                    externalModel.scale.set(0.4, 0.4, 0.4);
+                }
+
                 externalModel.rotation.y = Math.PI; 
                 externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
                 playerGroup.add(externalModel);
