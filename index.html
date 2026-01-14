@@ -509,16 +509,20 @@
                     model = gltf.scene;
                     
                     // Fixed scaling and animation normalization for custom skins
-                    const bbox = new THREE.Box3().setFromObject(model);
-                    const size = new THREE.Vector3();
-                    bbox.getSize(size);
-                    const h = size.y;
-                    const targetH = 2.0; // Enforce 2 blocks
-                    if (h > 0) {
-                        const s = targetH / h;
-                        model.scale.set(s, s, s);
+                    if (skinData.scale) {
+                        model.scale.set(skinData.scale, skinData.scale, skinData.scale);
                     } else {
-                        model.scale.set(0.4, 0.4, 0.4);
+                        const bbox = new THREE.Box3().setFromObject(model);
+                        const size = new THREE.Vector3();
+                        bbox.getSize(size);
+                        const h = size.y;
+                        const targetH = 2.0; 
+                        if (h > 0) {
+                            const s = targetH / h;
+                            model.scale.set(s, s, s);
+                        } else {
+                            model.scale.set(0.4, 0.4, 0.4);
+                        }
                     }
                     
                     model.position.y = -PLAYER_HEIGHT;
@@ -1312,16 +1316,20 @@
                     externalModel = gltf.scene;
                     
                     // Fixed scaling logic here
-                    const bbox = new THREE.Box3().setFromObject(externalModel);
-                    const size = new THREE.Vector3();
-                    bbox.getSize(size);
-                    const h = size.y;
-                    const targetH = 2.0; // Enforce 2 blocks
-                    if (h > 0) {
-                        const scale = targetH / h;
-                        externalModel.scale.set(scale, scale, scale);
+                    if (s.scale) {
+                        externalModel.scale.set(s.scale, s.scale, s.scale);
                     } else {
-                        externalModel.scale.set(0.4, 0.4, 0.4);
+                        const bbox = new THREE.Box3().setFromObject(externalModel);
+                        const size = new THREE.Vector3();
+                        bbox.getSize(size);
+                        const h = size.y;
+                        const targetH = 2.0; 
+                        if (h > 0) {
+                            const scale = targetH / h;
+                            externalModel.scale.set(scale, scale, scale);
+                        } else {
+                            externalModel.scale.set(0.4, 0.4, 0.4);
+                        }
                     }
                     
                     externalModel.rotation.y = Math.PI; 
@@ -1442,13 +1450,21 @@
                     externalModel = gltf.scene;
                     
                     // Fixed scaling logic here
-                    const bbox = new THREE.Box3().setFromObject(externalModel);
-                    const size = new THREE.Vector3();
-                    bbox.getSize(size);
-                    const h = size.y;
-                    const targetH = 2.0; // Force 2 blocks tall
-                    const scale = (h > 0) ? (targetH / h) : 0.4;
-                    externalModel.scale.set(scale, scale, scale);
+                    if (s.scale) {
+                        externalModel.scale.set(s.scale, s.scale, s.scale);
+                    } else {
+                        const bbox = new THREE.Box3().setFromObject(externalModel);
+                        const size = new THREE.Vector3();
+                        bbox.getSize(size);
+                        const h = size.y;
+                        const targetH = 2.0; 
+                        if (h > 0) {
+                            const scale = (targetH / h);
+                            externalModel.scale.set(scale, scale, scale);
+                        } else {
+                            externalModel.scale.set(0.4, 0.4, 0.4);
+                        }
+                    }
                     
                     externalModel.rotation.y = Math.PI; 
                     externalModel.position.y = -PLAYER_HEIGHT; 
