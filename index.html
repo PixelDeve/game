@@ -467,7 +467,7 @@
             // OPTIMIZATION: If default robot, clone existing to avoid re-downloading
             if ((!data.skin || data.skin === 'default') && modelLoaded && externalModel) {
                 model = THREE.SkeletonUtils.clone(externalModel);
-                model.position.y = -1.6;
+                model.position.y = -PLAYER_HEIGHT; // Fix height
                 model.traverse(n => { 
                     if(n.isMesh) { 
                         n.castShadow = true; n.receiveShadow = true; 
@@ -482,7 +482,13 @@
                 pMixer = new THREE.AnimationMixer(model);
                 const originalAnimations = externalModel.animations || [];
                 originalAnimations.forEach(clip => {
-                    pActions[clip.name] = pMixer.clipAction(clip);
+                    let n = clip.name;
+                    if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
+                    else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
+                    else if (n.toLowerCase().includes('idle')) n = 'Idle';
+                    else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
+                    
+                    if (!pActions[n]) pActions[n] = pMixer.clipAction(clip);
                 });
                 if(pActions['Idle']) pActions['Idle'].play();
             } else if (skinData && skinData.file) {
@@ -507,7 +513,7 @@
                     const size = new THREE.Vector3();
                     bbox.getSize(size);
                     const h = size.y;
-                    const targetH = skinData.scale ? skinData.scale : 2.0; 
+                    const targetH = 2.0; // Enforce 2 blocks
                     if (h > 0) {
                         const s = targetH / h;
                         model.scale.set(s, s, s);
@@ -515,7 +521,7 @@
                         model.scale.set(0.4, 0.4, 0.4);
                     }
                     
-                    model.position.y = -1.6;
+                    model.position.y = -PLAYER_HEIGHT;
                     model.traverse(n => { 
                         if(n.isMesh) { 
                             n.castShadow = true; n.receiveShadow = true; 
@@ -530,11 +536,13 @@
                     
                     // Rename animations for specific GLB structure and consistency
                     gltf.animations.forEach(clip => { 
-                        const n = clip.name.toLowerCase();
-                        if (n.includes('idle')) clip.name = 'Idle';
-                        else if (n.includes('walk') || n.includes('run') || n.includes('move')) clip.name = 'Walking';
+                        let n = clip.name;
+                        if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
+                        else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
+                        else if (n.toLowerCase().includes('idle')) n = 'Idle';
+                        else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
                         
-                        pActions[clip.name] = pMixer.clipAction(clip); 
+                        if (!pActions[n]) pActions[n] = pMixer.clipAction(clip); 
                     });
                     
                     if(pActions['Idle']) pActions['Idle'].play();
@@ -1308,7 +1316,7 @@
                     const size = new THREE.Vector3();
                     bbox.getSize(size);
                     const h = size.y;
-                    const targetH = s.scale ? s.scale : 2.0;
+                    const targetH = 2.0; // Enforce 2 blocks
                     if (h > 0) {
                         const scale = targetH / h;
                         externalModel.scale.set(scale, scale, scale);
@@ -1317,7 +1325,7 @@
                     }
                     
                     externalModel.rotation.y = Math.PI; 
-                    externalModel.position.y = -1.6;
+                    externalModel.position.y = -PLAYER_HEIGHT; // Fix height
                     externalModel.traverse(n => { 
                         if(n.isMesh) { 
                             n.castShadow = true; n.receiveShadow = true; 
@@ -1333,11 +1341,13 @@
                     actions = {};
                     // Renaming animations for consistency
                     gltf.animations.forEach((clip) => { 
-                        const n = clip.name.toLowerCase();
-                        if (n.includes('idle')) clip.name = 'Idle';
-                        else if (n.includes('walk') || n.includes('run') || n.includes('move')) clip.name = 'Walking';
+                        let n = clip.name;
+                        if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
+                        else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
+                        else if (n.toLowerCase().includes('idle')) n = 'Idle';
+                        else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
 
-                        actions[clip.name] = mixer.clipAction(clip); 
+                        actions[n] = mixer.clipAction(clip); 
                     });
                     if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
                     updatePOV();
@@ -1395,8 +1405,15 @@
             const oz = playerGroup.position.z; playerGroup.position.z += dz*dt; if(checkCol(playerGroup.position)) playerGroup.position.z = oz;
             playerGroup.position.y += vel.y*dt;
             if(checkCol(playerGroup.position)) { if(vel.y < 0) { playerGroup.position.y = Math.ceil(playerGroup.position.y - PLAYER_HEIGHT) + PLAYER_HEIGHT; vel.y = 0; onGround = true; } else { playerGroup.position.y = Math.floor(playerGroup.position.y + 0.1) - 0.1; vel.y = 0; } } else onGround = false;
-            if(mixer) { const hv = Math.hypot(dx, dz); if(hv > 0.5) fadeToAction('Walking', 0.2); else fadeToAction('Idle', 0.2); }
-            if(externalModel) externalModel.position.y = -1.6;
+            
+            // Animation Trigger
+            if(mixer) { 
+                const moving = Math.hypot(dx, dz) > 0.1;
+                if(moving) fadeToAction('Walking', 0.2); 
+                else fadeToAction('Idle', 0.2); 
+            }
+            
+            if(externalModel) externalModel.position.y = -PLAYER_HEIGHT;
             gameTime += dt; const angle = ((gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS) * Math.PI * 2;
             
             sunLight.position.set(playerGroup.position.x + Math.sin(angle) * 60, playerGroup.position.y + Math.cos(angle) * 60, playerGroup.position.z + 20);
@@ -1429,12 +1446,12 @@
                     const size = new THREE.Vector3();
                     bbox.getSize(size);
                     const h = size.y;
-                    const targetH = s.scale ? s.scale : 2.0;
+                    const targetH = 2.0; // Force 2 blocks tall
                     const scale = (h > 0) ? (targetH / h) : 0.4;
                     externalModel.scale.set(scale, scale, scale);
                     
                     externalModel.rotation.y = Math.PI; 
-                    externalModel.position.y = -1.6;
+                    externalModel.position.y = -PLAYER_HEIGHT; 
                     externalModel.traverse(n => { 
                         if(n.isMesh) { 
                             n.castShadow = true; n.receiveShadow = true; 
@@ -1450,14 +1467,19 @@
                     
                     // Rename animations for consistency
                     gltf.animations.forEach((clip) => { 
-                        const n = clip.name.toLowerCase();
-                        if (n.includes('idle')) clip.name = 'Idle';
-                        else if (n.includes('walk') || n.includes('run') || n.includes('move')) clip.name = 'Walking';
+                        let n = clip.name;
+                        if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
+                        else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
+                        else if (n.toLowerCase().includes('idle')) n = 'Idle';
+                        else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
 
-                        actions[clip.name] = mixer.clipAction(clip); 
+                        if (!actions[n]) actions[n] = mixer.clipAction(clip); 
                     });
                     
-                    if(actions['Idle']) actions['Idle'].play();
+                    if(actions['Idle']) {
+                        activeAction = actions['Idle'];
+                        activeAction.play();
+                    }
                     updatePOV();
                  }, undefined, (err) => {
                      console.error("Local player model load failed", err);
@@ -1526,6 +1548,7 @@
                 }
 
                 externalModel.rotation.y = Math.PI; 
+                externalModel.position.y = -PLAYER_HEIGHT; // Fix height
                 externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
                 playerGroup.add(externalModel);
                 modelLoaded = true;
