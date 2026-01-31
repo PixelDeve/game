@@ -191,9 +191,11 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             const claimsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'claims');
             onSnapshot(claimsRef, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
-                    if(change.type === "added") {
-                        const d = change.doc.data();
-                        landClaims[change.doc.id] = d.owner;
+                    if (change.type === "added") {
+                        landClaims[change.doc.id] = change.doc.data().owner;
+                    }
+                    if (change.type === "removed") {
+                        delete landClaims[change.doc.id];
                     }
                 });
             });
@@ -736,26 +738,36 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
                     world[k] = 0; 
                     if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
                     
-                    // Unclaim Logic
+                    // Unclaim Logic (FIXED)
                     if (type === 100) {
-                        deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', chunkKey));
-                        delete landClaims[chunkKey];
-                        // Remove Markers
+
+                        // Recalculate correct chunk key
                         const cx = Math.floor(bx) >> 4;
                         const cz = Math.floor(bz) >> 4;
+                        const claimChunkKey = `${cx},${cz}`;
+
+                        // Delete claim from Firestore + memory
+                        deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', claimChunkKey));
+                        delete landClaims[claimChunkKey];
+
+                        // Remove red wool corner markers (scan Y safely)
                         const corners = [
                             {x: cx*16, z: cz*16},
                             {x: cx*16+15, z: cz*16},
                             {x: cx*16, z: cz*16+15},
                             {x: cx*16+15, z: cz*16+15}
                         ];
+
                         corners.forEach(c => {
-                            const ck = `${c.x},${by},${c.z}`;
-                            if(world[ck] === 28) {
-                                world[ck] = 0;
-                                broadcastAction('BREAK', { x: c.x, y: by, z: c.z, prevId: 28 });
+                            for (let y = by - 5; y <= by + 5; y++) {
+                                const ck = `${c.x},${y},${c.z}`;
+                                if (world[ck] === 28) {
+                                    world[ck] = 0;
+                                    broadcastAction('BREAK', { x: c.x, y, z: c.z, prevId: 28 });
+                                }
                             }
                         });
+
                         refreshChunk(cx*16, cz*16);
                     }
 
