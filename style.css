@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body { margin: 0; overflow: hidden; background: #000; touch-action: none; user-select: none; font-family: 'Press Start 2P', cursive; }
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 20px; height: 20px;
+            transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center;
+        }
+        #crosshair::before { content: ''; position: absolute; width: 16px; height: 2px; background: rgba(255,255,255,0.8); mix-blend-mode: difference; }
+        #crosshair::after { content: ''; position: absolute; width: 2px; height: 16px; background: rgba(255,255,255,0.8); mix-blend-mode: difference; }
+
+        #break-progress {
+            position: absolute; top: 50%; left: 50%; width: 40px; height: 40px;
+            border: 4px solid rgba(0,0,0,0.5); border-top-color: #fff; border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            z-index: 10; transition: transform 0.1s linear;
+        }
+
+        .corner-btn {
+            position: absolute; top: 10px; width: 36px; height: 36px;
+            background: rgba(0,0,0,0.5); border: 2px solid #fff; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 7px; cursor: pointer; pointer-events: auto;
+            box-shadow: 0 3px 0 rgba(0,0,0,0.3); z-index: 100;
+        }
+        #pause-btn { left: 10px; }
+        #chat-toggle-btn { left: 52px; }
+        #fs-btn { right: 52px; } 
+        #cam-btn { right: 10px; }
+        #shop-btn { top: 52px; left: 10px; width: 78px; font-size: 8px; background: #DAA520; color: #000; }
+        
+        .corner-btn:active { transform: translateY(2px); box-shadow: none; }
+
+        #coin-display {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.6); border: 2px solid #DAA520; color: #FFD700;
+            padding: 8px 15px; font-size: 10px; z-index: 90; text-shadow: 1px 1px #000;
+        }
+
+        #hotbar-container {
+            position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 2px; background: rgba(0,0,0,0.4); padding: 2px; border: 3px solid #111; pointer-events: auto;
+            max-width: 95vw; overflow-x: auto;
+        }
+        .slot {
+            width: 34px; height: 34px; border: 3px solid #555; background: #8B8B8B;
+            display: flex; justify-content: center; align-items: center; cursor: pointer; position: relative;
+            box-shadow: inset 2px 2px #AAA, inset -2px -2px #333; flex-shrink: 0;
+        }
+        .slot.active { border-color: #FFF; background: #AAA; z-index: 2; transform: scale(1.05); box-shadow: 0 0 8px white; }
+        .slot canvas { width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
+        .slot-count { position: absolute; bottom: 2px; right: 2px; font-size: 8px; color: #fff; text-shadow: 1px 1px #000; pointer-events: none; }
+        
+        #inv-btn {
+            width: 34px; height: 34px; background: #8B8B8B; border: 3px solid #111; color: #fff;
+            display: flex; align-items: center; justify-content: center; font-size: 7px;
+            margin-right: 3px; cursor: pointer; text-shadow: 1px 1px #000;
+            box-shadow: inset 2px 2px #AAA, inset -2px -2px #333; flex-shrink: 0;
+        }
+
+        .ctrl { position: absolute; pointer-events: auto; z-index: 50; display: none; }
+        #joy-zone { bottom: 20px; left: 15px; width: 110px; height: 110px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; }
+        #joy-nub { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; background: #fff; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0.4; pointer-events: none; }
+        
+        #flight-controls {
+            position: absolute; bottom: 20px; right: 15px;
+            display: flex; flex-direction: column; gap: 8px; align-items: center;
+        }
+        .action-btn {
+            width: 50px; height: 50px; border-radius: 50%;
+            background: rgba(0,0,0,0.3); border: 2px solid rgba(255,255,255,0.4);
+            display: flex; align-items: center; justify-content: center;
+            backdrop-filter: blur(2px);
+        }
+        .action-btn svg { width: 24px; height: 24px; fill: white; opacity: 0.8; }
+
+        #chat-container {
+            position: fixed; top: 95px; left: 10px; width: 240px; height: 140px;
+            display: none; flex-direction: column; z-index: 2500; pointer-events: auto;
+        }
+        #chat-header { background: rgba(0,0,0,0.8); color: #0f0; padding: 4px; font-size: 6px; border-bottom: 2px solid #333; }
+        #chat-log { flex-grow: 1; background: rgba(0,0,0,0.6); color: #fff; padding: 6px; font-size: 7px; overflow-y: auto; display: flex; flex-direction: column-reverse; }
+        #chat-input-wrapper { display: flex; background: rgba(0,0,0,0.8); border: 2px solid #555; }
+        #chat-input { flex-grow: 1; background: transparent; border: none; color: #fff; padding: 8px; font-family: 'Press Start 2P'; font-size: 7px; outline: none; width: 50%; }
+        #chat-send-btn { background: #555; color: #fff; border: none; padding: 0 8px; cursor: pointer; font-family: 'Press Start 2P'; font-size: 7px; }
+
+        #inventory-overlay, #shop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; pointer-events: auto; }
+        #inventory-grid, #shop-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; background: #8B8B8B; padding: 15px; border: 4px solid #111; max-height: 70vh; overflow-y: auto; }
+        
+        #pause-menu { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 3000; pointer-events: auto; }
+        .menu-card { background: #8B8B8B; padding: 20px; border: 4px solid #000; display: flex; flex-direction: column; gap: 10px; width: 200px; }
+        .menu-btn { padding: 12px; background: #777; color: #fff; border: 3px solid #000; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer; text-align: center; }
+
+        #loading { position: fixed; inset: 0; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
+        #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
+        
+        #del-mode-btn { background: #a33; margin-top: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; }
+        
+        #shop-mode-btn { background: #2ecc71; margin-bottom: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; text-align: center; }
+        
+        .shop-item { width: 50px; height: 60px; background: #555; border: 2px solid #000; display: flex; flex-direction: column; align-items: center; justify-content: space-between; cursor: pointer; padding: 2px; }
+        .shop-item:hover { background: #666; }
+        .shop-price { font-size: 6px; color: #FFD700; margin-bottom: 2px; text-align: center; }
+        .shop-name { font-size: 5px; color: #fff; margin-top: 2px; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; }
+        .shop-tabs { display: flex; gap: 5px; margin-bottom: 10px; }
+        .shop-tab { padding: 8px; background: #555; color: white; border: 2px solid #000; font-size: 8px; cursor: pointer; }
+        .shop-tab.active { background: #DAA520; color: black; }
+        .shop-item canvas { image-rendering: pixelated; margin: 2px 0; }
