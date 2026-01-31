@@ -143,6 +143,31 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
 
+// ===== FOOTSTEP AUDIO FIX =====
+let audioListener, footstepSound, audioUnlocked = false;
+
+function initFootstepAudio() {
+    audioListener = new THREE.AudioListener();
+    camera.add(audioListener);
+
+    footstepSound = new THREE.Audio(audioListener);
+    const audioLoader = new THREE.AudioLoader();
+    audioLoader.load('sounds/walk.mp3', (buffer) => {
+        footstepSound.setBuffer(buffer);
+        footstepSound.setLoop(true);
+        footstepSound.setVolume(0.4);
+    });
+
+    window.addEventListener('click', () => {
+        if (!audioUnlocked && audioListener.context.state === 'suspended') {
+            audioListener.context.resume();
+            audioUnlocked = true;
+        }
+    }, { once: true });
+}
+// ===============================
+
+
         function makeTextSprite(message) {
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
@@ -244,7 +269,16 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
         }
 
         let lastNetworkUpdate = 0;
-        function updateNetworkLoop() {
+        
+// ===== FOOTSTEP SOUND UPDATE =====
+const isMovingNow = Math.hypot(vel.x || 0, vel.z || 0) > 0.1 && onGround;
+if (footstepSound) {
+    if (isMovingNow && !footstepSound.isPlaying) footstepSound.play();
+    if (!isMovingNow && footstepSound.isPlaying) footstepSound.stop();
+}
+// =================================
+
+function updateNetworkLoop() {
             if (!currentUser || !running) return;
             const now = Date.now();
             if (now - lastNetworkUpdate > 100) {
@@ -271,9 +305,9 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             const skinData = SKINS[data.skin || 'default'];
             
             // OPTIMIZATION: If default robot, clone existing to avoid re-downloading
-            if ((!data.skin || data.skin === 'default') && modelLoaded && externalModel) {
+            if (false) { // DISABLED: always load GLB for remote players
                 model = THREE.SkeletonUtils.clone(externalModel);
-                model.position.y = -PLAYER_HEIGHT; // Fix height
+                model.position.y = 0; // FIX: do not sink remote player
                 model.traverse(n => { 
                     if(n.isMesh) { 
                         n.castShadow = true; n.receiveShadow = true; 
