@@ -1414,3 +1414,66 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
         let last = performance.now(); init();
+
+// ===================== AUDIO SYSTEM (MERGED) =====================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioCtx();
+
+const __sounds = {};
+const __soundFiles = {
+  walk: 'assets/sounds/walk.mp3',
+  place: 'assets/sounds/place.mp3',
+  break: 'assets/sounds/break.mp3',
+  mine: 'assets/sounds/mine.mp3',
+  click: 'assets/sounds/click.mp3',
+  ambient: 'assets/sounds/ambient.mp3'
+};
+
+async function __loadSound(n,u){
+  try{
+    const r = await fetch(u);
+    const b = await r.arrayBuffer();
+    __sounds[n] = await audioCtx.decodeAudioData(b);
+  }catch(e){ console.warn('Sound load failed', n); }
+}
+Promise.all(Object.entries(__soundFiles).map(([n,u])=>__loadSound(n,u)));
+
+function __playSound(n,v=1,l=false){
+  if(!__sounds[n]) return null;
+  const s = audioCtx.createBufferSource();
+  const g = audioCtx.createGain();
+  s.buffer = __sounds[n];
+  s.loop = l;
+  g.gain.value = v;
+  s.connect(g).connect(audioCtx.destination);
+  s.start();
+  return s;
+}
+
+window.addEventListener('click', ()=>audioCtx.resume(), {once:true});
+window.addEventListener('touchstart', ()=>audioCtx.resume(), {once:true});
+
+let __miningSound=null, __ambientSound=null, __lastStep=0;
+
+// wrap interact safely
+if(typeof interact === 'function'){
+  const __origInteract = interact;
+  interact = function(place){
+    const r = __origInteract.apply(this, arguments);
+    if(place) __playSound('place',0.7);
+    else __playSound('break',0.8);
+    return r;
+  }
+}
+
+// ui clicks
+document.addEventListener('click',e=>{
+  if(e.target && e.target.tagName==='BUTTON') __playSound('click',0.4);
+});
+
+function __startAmbient(){
+  if(!__ambientSound) __ambientSound = __playSound('ambient',0.25,true);
+}
+setTimeout(__startAmbient,2000);
+
+// ================================================================
