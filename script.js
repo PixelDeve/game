@@ -161,78 +161,6 @@ function normalizePlayerModel(model, targetHeight = 1.8) {
 }
 // ====================================
 
-
-// =====================================================
-// ADVANCED MULTIPLAYER OPTIMIZATIONS
-// =====================================================
-
-// ---------- MODEL + TEXTURE CACHE ----------
-const ModelCache = {};
-const TextureCache = {};
-
-function loadCachedTexture(url, onLoad) {
-    if (TextureCache[url]) {
-        onLoad(TextureCache[url]);
-        return;
-    }
-    new THREE.TextureLoader().load(url, tex => {
-        TextureCache[url] = tex;
-        onLoad(tex);
-    });
-}
-
-function loadCachedGLB(url, onLoad) {
-    if (ModelCache[url]) {
-        onLoad(ModelCache[url].clone(true));
-        return;
-    }
-    const loader = new THREE.GLTFLoader();
-    loader.load(url, gltf => {
-        ModelCache[url] = gltf.scene;
-        onLoad(gltf.scene.clone(true));
-    });
-}
-
-// ---------- 3D POSITIONAL FOOTSTEP AUDIO ----------
-function create3DFootstepSound(parent) {
-    const sound = new THREE.PositionalAudio(audioListener);
-    const loader = new THREE.AudioLoader();
-
-    loader.load('sounds/walk.mp3', buffer => {
-        sound.setBuffer(buffer);
-        sound.setRefDistance(4);
-        sound.setMaxDistance(25);
-        sound.setLoop(true);
-        sound.setVolume(0.6);
-    });
-
-    parent.add(sound);
-    return sound;
-}
-
-// ---------- CLIENT-SIDE PREDICTION ----------
-let predictedState = {
-    pos: new THREE.Vector3(),
-    vel: new THREE.Vector3(),
-    rotY: 0
-};
-
-function applyClientPrediction(dt) {
-    predictedState.pos.addScaledVector(predictedState.vel, dt);
-    playerGroup.position.copy(predictedState.pos);
-    playerGroup.rotation.y = predictedState.rotY;
-}
-
-function reconcileServerState(serverData) {
-    const serverPos = new THREE.Vector3(serverData.x, serverData.y, serverData.z);
-    if (serverPos.distanceTo(playerGroup.position) > 0.25) {
-        playerGroup.position.lerp(serverPos, 0.5);
-    }
-}
-
-// =====================================================
-
-
 // ===== FOOTSTEP AUDIO FIX =====
 let audioListener, footstepSound, audioUnlocked = false;
 
@@ -572,11 +500,6 @@ function updateNetworkLoop() {
                 p.group.position.lerp(p.targetPos, 10 * dt);
                 p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot + Math.PI, 10 * dt);
                 if (p.mixer) p.mixer.update(dt);
-    const moving = p.velocity && Math.hypot(p.velocity.x || 0, p.velocity.z || 0) > 0.1;
-    if (p.footstep3D) {
-        if (moving && !p.footstep3D.isPlaying) p.footstep3D.play();
-        if (!moving && p.footstep3D.isPlaying) p.footstep3D.stop();
-    }
             }
         }
 
@@ -1381,8 +1304,7 @@ function updateNetworkLoop() {
             scene.background = skyColor; scene.fog.color = skyColor; stars.material.opacity = Math.cos(angle) < 0 ? 1 : 0;
             raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
             if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
-            applyClientPrediction(dt);
-    updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld(); renderer.render(scene, camera);
+            updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld(); renderer.render(scene, camera);
         }
 
         async function startGame(user) {
@@ -1611,76 +1533,4 @@ function __startAmbient(){
 }
 setTimeout(__startAmbient,2000);
 
-// ====================================
-
-
-// =====================================================
-// ADVANCED MULTIPLAYER OPTIMIZATIONS
-// =====================================================
-
-// ---------- MODEL + TEXTURE CACHE ----------
-const ModelCache = {};
-const TextureCache = {};
-
-function loadCachedTexture(url, onLoad) {
-    if (TextureCache[url]) {
-        onLoad(TextureCache[url]);
-        return;
-    }
-    new THREE.TextureLoader().load(url, tex => {
-        TextureCache[url] = tex;
-        onLoad(tex);
-    });
-}
-
-function loadCachedGLB(url, onLoad) {
-    if (ModelCache[url]) {
-        onLoad(ModelCache[url].clone(true));
-        return;
-    }
-    const loader = new THREE.GLTFLoader();
-    loader.load(url, gltf => {
-        ModelCache[url] = gltf.scene;
-        onLoad(gltf.scene.clone(true));
-    });
-}
-
-// ---------- 3D POSITIONAL FOOTSTEP AUDIO ----------
-function create3DFootstepSound(parent) {
-    const sound = new THREE.PositionalAudio(audioListener);
-    const loader = new THREE.AudioLoader();
-
-    loader.load('sounds/walk.mp3', buffer => {
-        sound.setBuffer(buffer);
-        sound.setRefDistance(4);
-        sound.setMaxDistance(25);
-        sound.setLoop(true);
-        sound.setVolume(0.6);
-    });
-
-    parent.add(sound);
-    return sound;
-}
-
-// ---------- CLIENT-SIDE PREDICTION ----------
-let predictedState = {
-    pos: new THREE.Vector3(),
-    vel: new THREE.Vector3(),
-    rotY: 0
-};
-
-function applyClientPrediction(dt) {
-    predictedState.pos.addScaledVector(predictedState.vel, dt);
-    playerGroup.position.copy(predictedState.pos);
-    playerGroup.rotation.y = predictedState.rotY;
-}
-
-function reconcileServerState(serverData) {
-    const serverPos = new THREE.Vector3(serverData.x, serverData.y, serverData.z);
-    if (serverPos.distanceTo(playerGroup.position) > 0.25) {
-        playerGroup.position.lerp(serverPos, 0.5);
-    }
-}
-
-// =====================================================
-============================
+// ================================================================
