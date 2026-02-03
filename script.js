@@ -505,58 +505,86 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
         }
 
         async function createAtlas() {
-            const S = 32; 
+            const S = 32;
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            
+
             const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
             const count = uniqueFiles.length;
-            
+
             ATLAS_COLS = 8;
             ATLAS_ROWS = Math.max(1, Math.ceil(count / ATLAS_COLS));
-            
+
             canvas.width = S * ATLAS_COLS;
             canvas.height = S * ATLAS_ROWS;
 
             const fileToId = {};
-            
-            const loadTile = (file, index) => {
-                return new Promise((resolve) => {
-                    const img = new Image();
-                    img.crossOrigin = "Anonymous";
-                    img.onload = () => {
-                        const tx = (index % ATLAS_COLS) * S;
-                        const ty = Math.floor(index / ATLAS_COLS) * S;
-                        ctx.drawImage(img, tx, ty, S, S);
-                        resolve();
-                    };
-                    img.onerror = () => {
-                        const tx = (index % ATLAS_COLS) * S;
-                        const ty = Math.floor(index / ATLAS_COLS) * S;
+
+            // Simple in-memory cache across page lifetime to avoid refetching/decoding images
+            const imageCache = window.__voxelImgCache = window.__voxelImgCache || new Map();
+
+            const loadTile = async (file, index) => {
+                const tx = (index % ATLAS_COLS) * S;
+                const ty = Math.floor(index / ATLAS_COLS) * S;
+                const url = new URL(`./assets/${file}`, window.location.href).href;
+
+                // Use cached ImageBitmap if available
+                if (imageCache.has(url)) {
+                    const bmp = imageCache.get(url);
+                    if (bmp) ctx.drawImage(bmp, tx, ty, S, S);
+                    else {
+                        // placeholder for failed image
                         ctx.fillStyle = '#FFFFFF';
                         ctx.fillRect(tx, ty, S, S);
-                        ctx.fillStyle = '#FF00FF'; 
+                        ctx.fillStyle = '#FF00FF';
                         ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
-                        resolve();
-                    };
-                    img.src = new URL(`./assets/${file}`, window.location.href).href;
-                });
+                    }
+                    return;
+                }
+
+                try {
+                    // Prefer fetch + createImageBitmap for faster decoding on many browsers
+                    const resp = await fetch(url, { mode: 'cors' });
+                    if (!resp.ok) throw new Error('Image fetch failed');
+                    const blob = await resp.blob();
+                    // createImageBitmap is faster and can off-main-thread in some browsers
+                    const bmp = await createImageBitmap(blob);
+                    imageCache.set(url, bmp);
+                    ctx.drawImage(bmp, tx, ty, S, S);
+                } catch (e) {
+                    // mark as failed to avoid retry storms
+                    imageCache.set(url, null);
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(tx, ty, S, S);
+                    ctx.fillStyle = '#FF00FF';
+                    ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
+                }
             };
 
+            // Build atlas sequentially to avoid massive parallel fetches on low-end devices
             for (let i = 0; i < count; i++) {
                 await loadTile(uniqueFiles[i], i);
                 fileToId[uniqueFiles[i]] = i;
             }
 
+            // Assign tile indices back to block definitions
             Object.values(BLOCKS).forEach(b => {
-                if(b.files) {
+                if (b.files) {
                     b.tiles = b.files.map(f => fileToId[f]);
                 }
             });
 
+            // Create a Three.js texture from the canvas. Keep nearest filtering for crisp voxel look.
             const tex = new THREE.CanvasTexture(canvas);
             tex.magFilter = THREE.NearestFilter;
             tex.minFilter = THREE.NearestFilter;
+            tex.generateMipmaps = false;
+            tex.needsUpdate = true;
+
+            // Expose canvas for UI code that expects atlas.image (backwards compatible)
+            tex.__atlasCanvas = canvas;
+            window.__voxelAtlasCanvas = canvas;
+
             return tex;
         }
 
@@ -1325,15 +1353,22 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
-            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); 
+            (function(){
+            const devicePR = Math.min(window.devicePixelRatio || 1, 2);
+            const mem = navigator.deviceMemory || 4;
+            const preferAA = mem > 2 && devicePR <= 1.5;
+            renderer = new THREE.WebGLRenderer({ antialias: preferAA, powerPreference: (mem > 4 ? 'high-performance' : 'low-power'), alpha: false, preserveDrawingBuffer: false });
+            renderer.setPixelRatio(devicePR);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        })(); 
             renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
             document.body.appendChild(renderer.domElement);
             
             scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); 
             sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
             sunLight.castShadow = true; 
-            sunLight.shadow.mapSize.width = 2048; 
-            sunLight.shadow.mapSize.height = 2048; 
+            sunLight.shadow.mapSize.width = (navigator.deviceMemory && navigator.deviceMemory < 4) ? 1024 : 2048; 
+            sunLight.shadow.mapSize.height = (navigator.deviceMemory && navigator.deviceMemory < 4) ? 1024 : 2048; 
             const d = 50; 
             sunLight.shadow.camera.left = -d;
             sunLight.shadow.camera.right = d;
