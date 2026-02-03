@@ -143,49 +143,6 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
 
-
-// ===== GLB NORMALIZATION HELPERS =====
-function normalizePlayerModel(model, targetHeight = 1.8) {
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-
-    if (size.y > 0) {
-        const scale = targetHeight / size.y;
-        model.scale.setScalar(scale);
-    }
-
-    // GLB forward-axis fix (GLTF faces -Z)
-    model.rotation.y = Math.PI;
-    model.position.y = 0;
-}
-// ====================================
-
-// ===== FOOTSTEP AUDIO FIX =====
-let audioListener, footstepSound, audioUnlocked = false;
-
-function initFootstepAudio() {
-    audioListener = new THREE.AudioListener();
-    camera.add(audioListener);
-
-    footstepSound = new THREE.Audio(audioListener);
-    const audioLoader = new THREE.AudioLoader();
-    audioLoader.load('sounds/walk.mp3', (buffer) => {
-        footstepSound.setBuffer(buffer);
-        footstepSound.setLoop(true);
-        footstepSound.setVolume(0.4);
-    });
-
-    window.addEventListener('click', () => {
-        if (!audioUnlocked && audioListener.context.state === 'suspended') {
-            audioListener.context.resume();
-            audioUnlocked = true;
-        }
-    }, { once: true });
-}
-// ===============================
-
-
         function makeTextSprite(message) {
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
@@ -234,11 +191,9 @@ function initFootstepAudio() {
             const claimsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'claims');
             onSnapshot(claimsRef, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
-                    if (change.type === "added") {
-                        landClaims[change.doc.id] = change.doc.data().owner;
-                    }
-                    if (change.type === "removed") {
-                        delete landClaims[change.doc.id];
+                    if(change.type === "added") {
+                        const d = change.doc.data();
+                        landClaims[change.doc.id] = d.owner;
                     }
                 });
             });
@@ -287,16 +242,7 @@ function initFootstepAudio() {
         }
 
         let lastNetworkUpdate = 0;
-        
-// ===== FOOTSTEP SOUND UPDATE =====
-const isMovingNow = Math.hypot(vel.x || 0, vel.z || 0) > 0.1 && onGround;
-if (footstepSound) {
-    if (isMovingNow && !footstepSound.isPlaying) footstepSound.play();
-    if (!isMovingNow && footstepSound.isPlaying) footstepSound.stop();
-}
-// =================================
-
-function updateNetworkLoop() {
+        function updateNetworkLoop() {
             if (!currentUser || !running) return;
             const now = Date.now();
             if (now - lastNetworkUpdate > 100) {
@@ -323,9 +269,9 @@ function updateNetworkLoop() {
             const skinData = SKINS[data.skin || 'default'];
             
             // OPTIMIZATION: If default robot, clone existing to avoid re-downloading
-            if (false) { // DISABLED: always load GLB for remote players
+            if ((!data.skin || data.skin === 'default') && modelLoaded && externalModel) {
                 model = THREE.SkeletonUtils.clone(externalModel);
-                model.position.y = 0; // FIX: do not sink remote player
+                model.position.y = -PLAYER_HEIGHT; // Fix height
                 model.traverse(n => { 
                     if(n.isMesh) { 
                         n.castShadow = true; n.receiveShadow = true; 
@@ -335,8 +281,7 @@ function updateNetworkLoop() {
                         }
                     } 
                 });
-                normalizePlayerModel(model);
-    group.add(model);
+                group.add(model);
                 
                 pMixer = new THREE.AnimationMixer(model);
                 const originalAnimations = externalModel.animations || [];
@@ -394,8 +339,7 @@ function updateNetworkLoop() {
                             }
                         } 
                     });
-                    normalizePlayerModel(model);
-    group.add(model);
+                    group.add(model);
                     pMixer = new THREE.AnimationMixer(model);
                     
                     // Rename animations for specific GLB structure and consistency
@@ -424,8 +368,7 @@ function updateNetworkLoop() {
                 model = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
                 model.position.y = -0.8;
                 model.castShadow = true; model.receiveShadow = true;
-                normalizePlayerModel(model);
-    group.add(model);
+                group.add(model);
             }
 
             const nameTag = makeTextSprite(data.name || pid.substr(0, 8));
@@ -498,7 +441,7 @@ function updateNetworkLoop() {
                 }
 
                 p.group.position.lerp(p.targetPos, 10 * dt);
-                p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot + Math.PI, 10 * dt);
+                p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
                 if (p.mixer) p.mixer.update(dt);
             }
         }
@@ -793,36 +736,26 @@ function updateNetworkLoop() {
                     world[k] = 0; 
                     if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
                     
-                    // Unclaim Logic (FIXED)
+                    // Unclaim Logic
                     if (type === 100) {
-
-                        // Recalculate correct chunk key
+                        deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', chunkKey));
+                        delete landClaims[chunkKey];
+                        // Remove Markers
                         const cx = Math.floor(bx) >> 4;
                         const cz = Math.floor(bz) >> 4;
-                        const claimChunkKey = `${cx},${cz}`;
-
-                        // Delete claim from Firestore + memory
-                        deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', claimChunkKey));
-                        delete landClaims[claimChunkKey];
-
-                        // Remove red wool corner markers (scan Y safely)
                         const corners = [
                             {x: cx*16, z: cz*16},
                             {x: cx*16+15, z: cz*16},
                             {x: cx*16, z: cz*16+15},
                             {x: cx*16+15, z: cz*16+15}
                         ];
-
                         corners.forEach(c => {
-                            for (let y = by - 5; y <= by + 5; y++) {
-                                const ck = `${c.x},${y},${c.z}`;
-                                if (world[ck] === 28) {
-                                    world[ck] = 0;
-                                    broadcastAction('BREAK', { x: c.x, y, z: c.z, prevId: 28 });
-                                }
+                            const ck = `${c.x},${by},${c.z}`;
+                            if(world[ck] === 28) {
+                                world[ck] = 0;
+                                broadcastAction('BREAK', { x: c.x, y: by, z: c.z, prevId: 28 });
                             }
                         });
-
                         refreshChunk(cx*16, cz*16);
                     }
 
@@ -866,12 +799,10 @@ function updateNetworkLoop() {
                 if(externalModel) externalModel.visible = false;
             } else if (povMode === 1) {
                 camera.position.set(0.8, 0.5, povDist); camera.rotation.y = 0;
-                if(externalModel) if (externalModel) normalizePlayerModel(externalModel);
-                externalModel.visible = true;
+                if(externalModel) externalModel.visible = true;
             } else {
                 camera.position.set(0, 0.5, -povDist); camera.rotation.y = Math.PI;
-                if(externalModel) if (externalModel) normalizePlayerModel(externalModel);
-                externalModel.visible = true;
+                if(externalModel) externalModel.visible = true;
             }
         }
 
@@ -1471,66 +1402,3 @@ function updateNetworkLoop() {
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
         let last = performance.now(); init();
-
-// ===================== AUDIO SYSTEM (MERGED) =====================
-const AudioCtx = window.AudioContext || window.webkitAudioContext;
-const audioCtx = new AudioCtx();
-
-const __sounds = {};
-const __soundFiles = {
-  walk: 'assets/sounds/walk.mp3',
-  place: 'assets/sounds/place.mp3',
-  break: 'assets/sounds/break.mp3',
-  mine: 'assets/sounds/mine.mp3',
-  click: 'assets/sounds/click.mp3',
-  ambient: 'assets/sounds/ambient.mp3'
-};
-
-async function __loadSound(n,u){
-  try{
-    const r = await fetch(u);
-    const b = await r.arrayBuffer();
-    __sounds[n] = await audioCtx.decodeAudioData(b);
-  }catch(e){ console.warn('Sound load failed', n); }
-}
-Promise.all(Object.entries(__soundFiles).map(([n,u])=>__loadSound(n,u)));
-
-function __playSound(n,v=1,l=false){
-  if(!__sounds[n]) return null;
-  const s = audioCtx.createBufferSource();
-  const g = audioCtx.createGain();
-  s.buffer = __sounds[n];
-  s.loop = l;
-  g.gain.value = v;
-  s.connect(g).connect(audioCtx.destination);
-  s.start();
-  return s;
-}
-
-window.addEventListener('click', ()=>audioCtx.resume(), {once:true});
-window.addEventListener('touchstart', ()=>audioCtx.resume(), {once:true});
-
-let __miningSound=null, __ambientSound=null, __lastStep=0;
-
-// wrap interact safely
-if(typeof interact === 'function'){
-  const __origInteract = interact;
-  interact = function(place){
-    const r = __origInteract.apply(this, arguments);
-    if(place) __playSound('place',0.7);
-    else __playSound('break',0.8);
-    return r;
-  }
-}
-
-// ui clicks
-document.addEventListener('click',e=>{
-  if(e.target && e.target.tagName==='BUTTON') __playSound('click',0.4);
-});
-
-function __startAmbient(){
-  if(!__ambientSound) __ambientSound = __playSound('ambient',0.25,true);
-}
-setTimeout(__startAmbient,2000);
-
-// ================================================================
