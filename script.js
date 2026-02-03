@@ -143,6 +143,24 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
 
+
+// ===== GLB NORMALIZATION HELPERS =====
+function normalizePlayerModel(model, targetHeight = 1.8) {
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    if (size.y > 0) {
+        const scale = targetHeight / size.y;
+        model.scale.setScalar(scale);
+    }
+
+    // GLB forward-axis fix (GLTF faces -Z)
+    model.rotation.y = Math.PI;
+    model.position.y = 0;
+}
+// ====================================
+
 // ===== FOOTSTEP AUDIO FIX =====
 let audioListener, footstepSound, audioUnlocked = false;
 
@@ -317,7 +335,8 @@ function updateNetworkLoop() {
                         }
                     } 
                 });
-                group.add(model);
+                normalizePlayerModel(model);
+    group.add(model);
                 
                 pMixer = new THREE.AnimationMixer(model);
                 const originalAnimations = externalModel.animations || [];
@@ -375,7 +394,8 @@ function updateNetworkLoop() {
                             }
                         } 
                     });
-                    group.add(model);
+                    normalizePlayerModel(model);
+    group.add(model);
                     pMixer = new THREE.AnimationMixer(model);
                     
                     // Rename animations for specific GLB structure and consistency
@@ -404,7 +424,8 @@ function updateNetworkLoop() {
                 model = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
                 model.position.y = -0.8;
                 model.castShadow = true; model.receiveShadow = true;
-                group.add(model);
+                normalizePlayerModel(model);
+    group.add(model);
             }
 
             const nameTag = makeTextSprite(data.name || pid.substr(0, 8));
@@ -477,7 +498,7 @@ function updateNetworkLoop() {
                 }
 
                 p.group.position.lerp(p.targetPos, 10 * dt);
-                p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot, 10 * dt);
+                p.group.rotation.y = THREE.MathUtils.lerp(p.group.rotation.y, p.targetRot + Math.PI, 10 * dt);
                 if (p.mixer) p.mixer.update(dt);
             }
         }
@@ -845,10 +866,12 @@ function updateNetworkLoop() {
                 if(externalModel) externalModel.visible = false;
             } else if (povMode === 1) {
                 camera.position.set(0.8, 0.5, povDist); camera.rotation.y = 0;
-                if(externalModel) externalModel.visible = true;
+                if(externalModel) if (externalModel) normalizePlayerModel(externalModel);
+                externalModel.visible = true;
             } else {
                 camera.position.set(0, 0.5, -povDist); camera.rotation.y = Math.PI;
-                if(externalModel) externalModel.visible = true;
+                if(externalModel) if (externalModel) normalizePlayerModel(externalModel);
+                externalModel.visible = true;
             }
         }
 
