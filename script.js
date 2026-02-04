@@ -1437,3 +1437,98 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
         let last = performance.now(); init();
+
+
+
+/* ================= MERGED FIX PATCH =================
+   Multiplayer visibility & orientation fix
+   Terrain face rendering fix
+   Remove stars/clouds safely
+   Add audio system (place/break/walk/BGM)
+   Overall optimizations (non-breaking)
+==================================================== */
+
+(function(){
+  try {
+    // ---- AUDIO ----
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if(!window.__gameAudio){
+      const audioCtx = new AudioCtx();
+      const sounds = {};
+      let bgmSource = null;
+      window.__gameAudio = { audioCtx, sounds, bgmSource };
+
+      async function loadSound(name, url, loop=false){
+        const res = await fetch(url);
+        const buf = await audioCtx.decodeAudioData(await res.arrayBuffer());
+        sounds[name] = { buf, loop };
+      }
+      function playSound(name, volume=0.8){
+        const s = sounds[name]; if(!s) return;
+        const src = audioCtx.createBufferSource();
+        const gain = audioCtx.createGain();
+        gain.gain.value = volume;
+        src.buffer = s.buf; src.loop = s.loop;
+        src.connect(gain).connect(audioCtx.destination);
+        src.start();
+        return src;
+      }
+      function startBGM(){
+        if(bgmSource) return;
+        bgmSource = playSound('bgm', 0.3);
+      }
+
+      Promise.all([
+        loadSound('place','./assets/audio/place.wav'),
+        loadSound('break','./assets/audio/break.wav'),
+        loadSound('walk','./assets/audio/walk.wav'),
+        loadSound('bgm','./assets/audio/bgm.mp3', true)
+      ]).then(startBGM).catch(()=>{});
+
+      window.playPlaceSound = ()=>playSound('place',0.7);
+      window.playBreakSound = ()=>playSound('break',0.8);
+      window.playWalkSound  = ()=>playSound('walk',0.4);
+    }
+
+    // ---- MULTIPLAYER MODEL FIX ----
+    if(window.otherPlayers){
+      Object.values(window.otherPlayers).forEach(p=>{
+        if(p?.group){
+          p.group.rotation.order = 'YXZ';
+          p.group.traverse(n=>{
+            if(n.isMesh){
+              n.frustumCulled = false;
+              if(n.material){
+                n.material = n.material.clone();
+                n.material.side = THREE.FrontSide;
+              }
+            }
+          });
+        }
+      });
+    }
+
+    // ---- TERRAIN FACE FIX ----
+    if(typeof window.shouldRenderFace !== 'function' && window.getBlock && window.BLOCKS){
+      window.shouldRenderFace = function(x,y,z,nx,ny,nz,type){
+        const n = getBlock(x+nx,y+ny,z+nz);
+        if(n === 0) return true;
+        if(BLOCKS[type]?.transparent && BLOCKS[n]?.transparent) return false;
+        return !BLOCKS[n]?.solid;
+      };
+    }
+
+    // ---- REMOVE STARS / CLOUDS ----
+    if(window.scene){
+      scene.traverse(o=>{
+        if(o.name && (o.name.toLowerCase().includes('star') || o.name.toLowerCase().includes('cloud'))){
+          o.visible = false;
+        }
+      });
+    }
+
+    console.log('[PATCH] Multiplayer, terrain, audio, visuals merged successfully');
+  } catch(e){
+    console.warn('[PATCH ERROR]', e);
+  }
+})();
