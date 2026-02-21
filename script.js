@@ -670,6 +670,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
             geo.setAttribute('color', new THREE.Float32BufferAttribute(color, 3));
             geo.setIndex(idx);
+            setAttribute('color', new THREE.Float32BufferAttribute(color, 3));
+            geo.setIndex(idx);
             const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, transparent: true, alphaTest: 0.1 }));
             mesh.castShadow = true; 
             mesh.receiveShadow = true;
@@ -766,7 +768,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
                     
                     // Unclaim Logic
                     if (type === 100) {
-                        deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', chunkKey));
+                        const cx = Math.floor(bx) >> 4; const cz = Math.floor(bz) >> 4; const chunkKey = `${cx},${cz}`; deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', chunkKey));
                         delete landClaims[chunkKey];
                         // Remove Markers
                         const cx = Math.floor(bx) >> 4;
@@ -894,7 +896,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             camBtn.onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
             fsBtn.onclick = (e) => { e.stopPropagation(); if (!document.fullscreenElement) document.documentElement.requestFullscreen().then(() => fsBtn.innerText = "EXIT"); else document.exitFullscreen().then(() => fsBtn.innerText = "FULL"); };
             pBtn.onclick = (e) => { e.stopPropagation(); paused = true; pMenu.style.display = 'flex'; if(document.pointerLockElement) document.exitPointerLock(); };
-            document.getElementById('resume-btn').onclick = () => { paused = false; pMenu.style.display = 'none'; if(!isTouch) document.body.requestPointerLock(); };
+            document.getElementById('resume-btn').onclick = () => { paused = false; pMenu.style.display = 'none'; if(!isTouch && document.body.requestPointerLock) document.body.requestPointerLock(); };
             document.getElementById('quit-btn').onclick = () => { saveGame(); location.reload(); };
 
             if(isTouch) {
@@ -1008,7 +1010,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
                         const cnt = document.createElement('div'); cnt.className = 'slot-count'; cnt.innerText = item.count;
                         slot.appendChild(cnt);
                         slot.onclick = () => {
-                            if(deleteMode) { inventory[i] = null; updateHotbarFromInventory(); updateUI(); toggleInventory(); toggleInventory(); }
+                            if(deleteMode) { inventory[i] = null; updateHotbarFromInventory(); updateUI();  }
                         }
                     }
                     grid.appendChild(slot);
@@ -1032,7 +1034,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             
             if(tab === 'blocks') {
                 Object.keys(BLOCKS).forEach(id => {
-                    const b = BLOCKS[id]; if(!b.price && b.id !== 100) return;
+                    const b = BLOCKS[id]; if(!b.price && parseInt(id) !== 100) return;
                     createShopItem(grid, b.name, b.price, b, 'block', () => buyItem(id, b.price), (e) => { e.preventDefault(); sellItem(id, b.sellPrice || 0); });
                 });
             } else if(tab === 'tools') {
@@ -1341,7 +1343,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
             running = true;
             updatePOV();
-            if(!isTouch) document.body.requestPointerLock();
+            if(!isTouch && document.body.requestPointerLock) document.body.requestPointerLock();
             else document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
             updateWorld();
             animate();
@@ -1349,16 +1351,33 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
 
         async function init() {
             atlas = await createAtlas();
-            scene = new THREE.Scene(); scene.fog = new THREE.Fog(0x87CEEB, 15, 45);
+            scene = new THREE.Scene();
+            // Minecraft-like sky/fog and hemisphere light
+            scene.fog = new THREE.Fog(0x87CEEB, 15, 60);
+            const hemi = new THREE.HemisphereLight(0x87CEEB, 0x444444, 0.6); scene.add(hemi);
+            (function addSkybox(){
+                const skyGeo = new THREE.BoxGeometry(500, 500, 500);
+                const skyMaterials = [
+                    new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }),
+                    new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }),
+                    new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }),
+                    new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }),
+                    new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }),
+                    new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide })
+                ];
+                const sky = new THREE.Mesh(skyGeo, skyMaterials);
+                sky.renderOrder = -1; scene.add(sky);
+            })();
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
             (function(){
-            const devicePR = Math.min(window.devicePixelRatio || 1, 2);
+            const devicePR = Math.min(window.devicePixelRatio || 1, 1.5);
             const mem = navigator.deviceMemory || 4;
-            const preferAA = mem > 2 && devicePR <= 1.5;
+            const preferAA = mem > 3 && devicePR <= 1.25;
             renderer = new THREE.WebGLRenderer({ antialias: preferAA, powerPreference: (mem > 4 ? 'high-performance' : 'low-power'), alpha: false, preserveDrawingBuffer: false });
             renderer.setPixelRatio(devicePR);
+            try { renderer.outputEncoding = THREE.sRGBEncoding; } catch(e) { /* ignore */ }
             renderer.setSize(window.innerWidth, window.innerHeight);
         })(); 
             renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
@@ -1437,98 +1456,3 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
         let last = performance.now(); init();
-
-
-
-/* ================= MERGED FIX PATCH =================
-   Multiplayer visibility & orientation fix
-   Terrain face rendering fix
-   Remove stars/clouds safely
-   Add audio system (place/break/walk/BGM)
-   Overall optimizations (non-breaking)
-==================================================== */
-
-(function(){
-  try {
-    // ---- AUDIO ----
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if(!window.__gameAudio){
-      const audioCtx = new AudioCtx();
-      const sounds = {};
-      let bgmSource = null;
-      window.__gameAudio = { audioCtx, sounds, bgmSource };
-
-      async function loadSound(name, url, loop=false){
-        const res = await fetch(url);
-        const buf = await audioCtx.decodeAudioData(await res.arrayBuffer());
-        sounds[name] = { buf, loop };
-      }
-      function playSound(name, volume=0.8){
-        const s = sounds[name]; if(!s) return;
-        const src = audioCtx.createBufferSource();
-        const gain = audioCtx.createGain();
-        gain.gain.value = volume;
-        src.buffer = s.buf; src.loop = s.loop;
-        src.connect(gain).connect(audioCtx.destination);
-        src.start();
-        return src;
-      }
-      function startBGM(){
-        if(bgmSource) return;
-        bgmSource = playSound('bgm', 0.3);
-      }
-
-      Promise.all([
-        loadSound('place','./assets/audio/place.wav'),
-        loadSound('break','./assets/audio/break.wav'),
-        loadSound('walk','./assets/audio/walk.wav'),
-        loadSound('bgm','./assets/audio/bgm.mp3', true)
-      ]).then(startBGM).catch(()=>{});
-
-      window.playPlaceSound = ()=>playSound('place',0.7);
-      window.playBreakSound = ()=>playSound('break',0.8);
-      window.playWalkSound  = ()=>playSound('walk',0.4);
-    }
-
-    // ---- MULTIPLAYER MODEL FIX ----
-    if(window.otherPlayers){
-      Object.values(window.otherPlayers).forEach(p=>{
-        if(p?.group){
-          p.group.rotation.order = 'YXZ';
-          p.group.traverse(n=>{
-            if(n.isMesh){
-              n.frustumCulled = false;
-              if(n.material){
-                n.material = n.material.clone();
-                n.material.side = THREE.FrontSide;
-              }
-            }
-          });
-        }
-      });
-    }
-
-    // ---- TERRAIN FACE FIX ----
-    if(typeof window.shouldRenderFace !== 'function' && window.getBlock && window.BLOCKS){
-      window.shouldRenderFace = function(x,y,z,nx,ny,nz,type){
-        const n = getBlock(x+nx,y+ny,z+nz);
-        if(n === 0) return true;
-        if(BLOCKS[type]?.transparent && BLOCKS[n]?.transparent) return false;
-        return !BLOCKS[n]?.solid;
-      };
-    }
-
-    // ---- REMOVE STARS / CLOUDS ----
-    if(window.scene){
-      scene.traverse(o=>{
-        if(o.name && (o.name.toLowerCase().includes('star') || o.name.toLowerCase().includes('cloud'))){
-          o.visible = false;
-        }
-      });
-    }
-
-    console.log('[PATCH] Multiplayer, terrain, audio, visuals merged successfully');
-  } catch(e){
-    console.warn('[PATCH ERROR]', e);
-  }
-})();
