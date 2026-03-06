@@ -196,6 +196,48 @@
         .shop-tab { padding: 8px; background: #555; color: white; border: 2px solid #000; font-size: 8px; cursor: pointer; }
         .shop-tab.active { background: #DAA520; color: black; }
         .shop-item canvas { image-rendering: pixelated; margin: 2px 0; }
+
+        /* ── CHEST OVERLAY ── */
+        #chest-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 2100; pointer-events: auto;
+        }
+        #chest-title {
+            color: #DAA520; font-size: 10px; margin-bottom: 8px;
+            text-shadow: 2px 2px #000;
+        }
+        #chest-subtitle { color: #888; font-size: 6px; margin-bottom: 10px; }
+        #chest-grid {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+            background: #6B4F2A; padding: 12px; border: 4px solid #3a2a10;
+            border-top: 8px solid #8B6914; /* lid look */
+        }
+        #chest-player-label { color: #aaa; font-size: 6px; margin: 10px 0 6px; }
+        #chest-player-grid {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+            background: #8B8B8B; padding: 10px; border: 4px solid #111;
+        }
+        .chest-slot {
+            width: 34px; height: 34px; border: 3px solid #3a2a10; background: #5a3a18;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; position: relative;
+            box-shadow: inset 2px 2px #7a5a28, inset -2px -2px #2a1a08;
+            flex-shrink: 0;
+        }
+        .chest-slot:hover { border-color: #FFD700; }
+        .chest-slot canvas { width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
+        .chest-slot .slot-count { position: absolute; bottom: 2px; right: 2px; font-size: 8px; color: #fff; text-shadow: 1px 1px #000; }
+
+        /* ── DOOR ACTION HINT ── */
+        #action-hint {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, 30px);
+            color: rgba(255,255,255,0.8); font-size: 7px;
+            background: rgba(0,0,0,0.5); padding: 4px 10px;
+            pointer-events: none; z-index: 50;
+            display: none; white-space: nowrap;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -230,6 +272,7 @@
         <div id="coin-display">COINS: 0</div>
         <div id="crosshair"></div>
         <div id="break-progress"></div>
+        <div id="action-hint"></div>
         
         <div id="pause-btn" class="corner-btn ctrl">||</div>
         <div id="chat-toggle-btn" class="corner-btn ctrl">MSG</div>
@@ -291,6 +334,15 @@
         </div>
         <div id="shop-grid"></div>
         <button id="close-shop" class="menu-btn" style="margin-top: 15px; width: 160px;">CLOSE</button>
+    </div>
+
+    <!-- CHEST OVERLAY -->    <div id="chest-overlay">
+        <div id="chest-title">⬛ CHEST</div>
+        <div id="chest-subtitle">CLICK ITEMS TO MOVE · RIGHT-CLICK TO TAKE ALL</div>
+        <div id="chest-grid"></div>
+        <div id="chest-player-label">YOUR INVENTORY</div>
+        <div id="chest-player-grid"></div>
+        <button id="close-chest" class="menu-btn" style="margin-top: 14px; width: 160px;">CLOSE</button>
     </div>
 
     <script type="module">
@@ -420,7 +472,17 @@
             62: { name: 'Sponge', price: 10, sellPrice: 2, files: ['sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png'], hardness: 0.6 },
             63: { name: 'Redstone Lamp', price: 16, sellPrice: 4, files: ['redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png', 'redstone_lamp_off.png'], hardness: 0.3 },
             64: { name: 'Hay Bale', price: 4, sellPrice: 1, files: ['hay_side.png', 'hay_side.png', 'hay_top.png', 'hay_top.png', 'hay_side.png', 'hay_side.png'], hardness: 0.5 },
-            100: { name: 'Claim Block', price: 500, sellPrice: 50, files: ['sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png'], hardness: 5.0 }
+            100: { name: 'Claim Block', price: 500, sellPrice: 50, files: ['sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png', 'sponge.png'], hardness: 5.0 },
+            // ── INTERACTIVE BLOCKS ──
+            101: { name: 'Wood Door', price: 8, sellPrice: 2,
+                   files: ['__door_side.png','__door_side.png','__door_top.png','__door_top.png','__door_front.png','__door_front.png'],
+                   hardness: 1.5, isDoor: true, isDoorBottom: true, transparent: true },
+            102: { name: 'Door Top', price: 0,
+                   files: ['__door_side.png','__door_side.png','__door_toph.png','__door_toph.png','__door_front.png','__door_front.png'],
+                   hardness: 1.5, isDoor: true, isDoorTop: true, transparent: true, inShop: false },
+            103: { name: 'Chest', price: 20, sellPrice: 6,
+                   files: ['__chest_side.png','__chest_side.png','__chest_top.png','__chest_top.png','__chest_front.png','__chest_side.png'],
+                   hardness: 2.5, isChest: true }
         };
 
         let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars;
@@ -439,6 +501,13 @@
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
         let sharedChunkMaterial = null;
+
+        // ── DOOR & CHEST STATE ──
+        const blockStates  = {};  // "x,y,z" → { open: bool, facing: 0-3 }
+        const doorMeshes   = {};  // "x,y,z" → THREE.Mesh (open-door panel)
+        const chestContents = {}; // "x,y,z" → Array(18) of {id,count}|null
+        let activeChestKey = null;
+        let _hintTimeout   = null;
 
         // ── Performance: track last player chunk to throttle updateWorld ──
         let lastPlayerCX = null, lastPlayerCZ = null;
@@ -545,6 +614,193 @@
             }, 600);
         }
 
+        // ════════════════════════════════════
+        //  DOOR MESH SYSTEM
+        // ════════════════════════════════════
+        const _doorMat = new THREE.MeshLambertMaterial({ color: 0x8B5E3C, side: THREE.DoubleSide });
+        const _doorGeo = new THREE.BoxGeometry(0.075, 1, 0.95);
+
+        function updateDoorMesh(x, y, z) {
+            const k = `${x},${y},${z}`;
+            const state = blockStates[k];
+            // Remove old mesh if present
+            if (doorMeshes[k]) { scene.remove(doorMeshes[k]); delete doorMeshes[k]; }
+            if (!state || !state.open) return;
+            const mesh = new THREE.Mesh(_doorGeo, _doorMat);
+            // Position the open door panel along the side of the cell based on facing
+            const f = state.facing || 0;
+            // facing 0=+Z, 1=+X, 2=-Z, 3=-X
+            if (f === 0 || f === 2) {
+                // door faces Z axis → open panel on X side
+                mesh.position.set(x + (f === 0 ? 0.04 : 0.96), y + 0.5, z + 0.5);
+                mesh.rotation.y = Math.PI / 2;
+            } else {
+                // door faces X axis → open panel on Z side
+                mesh.position.set(x + 0.5, y + 0.5, z + (f === 1 ? 0.04 : 0.96));
+            }
+            mesh.castShadow = true;
+            scene.add(mesh);
+            doorMeshes[k] = mesh;
+        }
+
+        function toggleDoor(x, y, z) {
+            // Find door bottom (works from either half)
+            let bx = x, by = y, bz = z;
+            const type = getBlock(x, y, z);
+            if (BLOCKS[type] && BLOCKS[type].isDoorTop) by = y - 1;
+
+            const k = `${bx},${by},${bz}`;
+            const kt = `${bx},${by+1},${bz}`;
+            if (!blockStates[k]) blockStates[k] = { open: false, facing: 0 };
+            blockStates[k].open = !blockStates[k].open;
+            blockStates[kt] = { ...blockStates[k] };
+
+            updateDoorMesh(bx, by, bz);
+            updateDoorMesh(bx, by+1, bz);
+            refreshChunk(bx, bz);
+            broadcastAction('TOGGLE', { x: bx, y: by, z: bz, open: blockStates[k].open });
+        }
+
+        // ════════════════════════════════════
+        //  ACTION HINT
+        // ════════════════════════════════════
+        function showHint(text) {
+            const h = document.getElementById('action-hint');
+            h.innerText = text; h.style.display = 'block';
+            clearTimeout(_hintTimeout);
+            _hintTimeout = setTimeout(() => { h.style.display = 'none'; }, 2200);
+        }
+
+        // ════════════════════════════════════
+        //  CHEST UI
+        // ════════════════════════════════════
+        function renderSlotCanvas(item) {
+            const c = document.createElement('canvas'); c.width = 24; c.height = 24;
+            if (item && BLOCKS[item.id] && BLOCKS[item.id].tiles) {
+                const t = BLOCKS[item.id].tiles[4];
+                const ctx = c.getContext('2d');
+                const tx = (t % ATLAS_COLS) * 32, ty = Math.floor(t / ATLAS_COLS) * 32;
+                ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 24, 24);
+            }
+            return c;
+        }
+
+        function openChestUI(key) {
+            activeChestKey = key;
+            if (!chestContents[key]) chestContents[key] = new Array(18).fill(null);
+            renderChestUI();
+            const overlay = document.getElementById('chest-overlay');
+            overlay.style.display = 'flex';
+            if (document.pointerLockElement) document.exitPointerLock();
+        }
+
+        function closeChestUI() {
+            activeChestKey = null;
+            document.getElementById('chest-overlay').style.display = 'none';
+            if (!isTouch && !paused) document.body.requestPointerLock();
+        }
+
+        function renderChestUI() {
+            if (!activeChestKey) return;
+            const contents = chestContents[activeChestKey] || new Array(18).fill(null);
+
+            // Chest grid
+            const cg = document.getElementById('chest-grid'); cg.innerHTML = '';
+            contents.forEach((item, i) => {
+                const slot = document.createElement('div'); slot.className = 'chest-slot';
+                if (item) {
+                    slot.appendChild(renderSlotCanvas(item));
+                    const cnt = document.createElement('div'); cnt.className = 'slot-count'; cnt.innerText = item.count; slot.appendChild(cnt);
+                }
+                slot.onclick = () => chestSlotClick(i, 'chest');
+                slot.oncontextmenu = (e) => { e.preventDefault(); chestSlotTakeAll(i); };
+                cg.appendChild(slot);
+            });
+
+            // Player inventory grid (bottom)
+            const pg = document.getElementById('chest-player-grid'); pg.innerHTML = '';
+            inventory.forEach((item, i) => {
+                const slot = document.createElement('div'); slot.className = 'slot';
+                if (item) {
+                    slot.appendChild(renderSlotCanvas(item));
+                    const cnt = document.createElement('div'); cnt.className = 'slot-count'; cnt.innerText = item.count; slot.appendChild(cnt);
+                }
+                slot.onclick = () => chestSlotClick(i, 'player');
+                pg.appendChild(slot);
+            });
+        }
+
+        let _chestHeld = null; // { source:'chest'|'player', index: number }
+
+        function chestSlotClick(i, source) {
+            const contents = chestContents[activeChestKey];
+            if (!_chestHeld) {
+                // Pick up
+                const item = source === 'chest' ? contents[i] : inventory[i];
+                if (!item) return;
+                _chestHeld = { source, index: i };
+            } else {
+                // Put down
+                const fromChest = _chestHeld.source === 'chest';
+                const toChest   = source === 'chest';
+                const fromArr   = fromChest ? contents : inventory;
+                const toArr     = toChest   ? contents : inventory;
+                const fromItem  = fromArr[_chestHeld.index];
+                const toItem    = toArr[i];
+                // Swap
+                toArr[i]                = fromItem;
+                fromArr[_chestHeld.index] = toItem;
+                _chestHeld = null;
+                saveChestContents(activeChestKey);
+                updateHotbarFromInventory(); updateUI();
+                renderChestUI();
+            }
+        }
+
+        function chestSlotTakeAll(i) {
+            const contents = chestContents[activeChestKey];
+            const item = contents[i]; if (!item) return;
+            // Find space in inventory
+            let added = false;
+            for (let j = 0; j < 30; j++) {
+                if (inventory[j] && inventory[j].id === item.id) {
+                    inventory[j].count += item.count; added = true; break;
+                }
+            }
+            if (!added) {
+                for (let j = 0; j < 30; j++) {
+                    if (!inventory[j]) { inventory[j] = { id: item.id, count: item.count }; added = true; break; }
+                }
+            }
+            if (added) { contents[i] = null; saveChestContents(activeChestKey); updateHotbarFromInventory(); updateUI(); renderChestUI(); }
+        }
+
+        function saveChestContents(key) {
+            if (!currentUser) return;
+            const [cx, cy, cz] = key.split(',').map(Number);
+            setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'chests', key), {
+                contents: chestContents[key],
+                x: cx, y: cy, z: cz,
+                updatedBy: userId,
+                timestamp: serverTimestamp()
+            });
+        }
+
+        function initChestNetwork() {
+            const chestsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'chests');
+            onSnapshot(chestsRef, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added' || change.type === 'modified') {
+                        const d = change.doc.data();
+                        const key = change.doc.id;
+                        chestContents[key] = d.contents || new Array(18).fill(null);
+                        // If the chest UI is open and showing this chest, refresh it
+                        if (activeChestKey === key) renderChestUI();
+                    }
+                });
+            });
+        }
+
         function makeTextSprite(message) {
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
@@ -583,7 +839,17 @@
                     const pid = change.doc.id;
                     if (pid === userId) return; 
                     if (change.type === "added" || change.type === "modified") {
-                        if (!otherPlayers[pid]) createRemotePlayer(pid, data);
+                        if (!otherPlayers[pid]) {
+                            createRemotePlayer(pid, data);
+                        } else {
+                            // If skin changed, tear down old model and rebuild
+                            const prevSkin = otherPlayers[pid].data && otherPlayers[pid].data.skin;
+                            const newSkin  = data.skin || 'default';
+                            if ((prevSkin || 'default') !== newSkin) {
+                                removeRemotePlayer(pid);
+                                createRemotePlayer(pid, data);
+                            }
+                        }
                         updateRemotePlayer(pid, data);
                     }
                     if (change.type === "removed") removeRemotePlayer(pid);
@@ -611,11 +877,31 @@
                         if (d.action === 'PLACE') {
                             world[key] = d.id;
                             if (d.id === 10) activeTorches.push({x:d.x, y:d.y, z:d.z, k:key});
+                            // Restore door facing on load
+                            if (BLOCKS[d.id] && BLOCKS[d.id].isDoor && d.facing !== undefined) {
+                                blockStates[key] = { open: false, facing: d.facing };
+                            }
                         } else if (d.action === 'BREAK') {
                             world[key] = 0;
                             if (d.prevId === 10) activeTorches = activeTorches.filter(t => t.k !== key);
+                            // Clean up door state
+                            if (d.prevId === 101 || d.prevId === 102) {
+                                delete blockStates[key];
+                                if (doorMeshes[key]) { scene.remove(doorMeshes[key]); delete doorMeshes[key]; }
+                            }
+                        } else if (d.action === 'TOGGLE') {
+                            // Sync door toggle from another player
+                            if (d.author !== userId) {
+                                const kt = `${Math.floor(d.x)},${Math.floor(d.y)+1},${Math.floor(d.z)}`;
+                                const state = { open: d.open, facing: (blockStates[key] || {}).facing || 0 };
+                                blockStates[key] = state;
+                                blockStates[kt]  = { ...state };
+                                updateDoorMesh(Math.floor(d.x), Math.floor(d.y), Math.floor(d.z));
+                                updateDoorMesh(Math.floor(d.x), Math.floor(d.y)+1, Math.floor(d.z));
+                                if (running) { refreshChunk(d.x, d.z); }
+                            }
                         }
-                        if (running) refreshChunk(d.x, d.z);
+                        if (running && d.action !== 'TOGGLE') refreshChunk(d.x, d.z);
                     }
                 });
             });
@@ -646,6 +932,7 @@
                     deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId));
                 }
             });
+            initChestNetwork();
         }
 
         let lastNetworkUpdate = 0;
@@ -673,19 +960,20 @@
             let model;
             let pMixer, pActions = {};
             
-            const skinData = SKINS[data.skin || 'default'];
+            const remoteSkinId = data.skin || 'default';
+            const skinData = SKINS[remoteSkinId];
             
-            // OPTIMIZATION: If default robot, clone existing to avoid re-downloading
-            if ((!data.skin || data.skin === 'default') && modelLoaded && externalModel) {
+            // Clone the local externalModel only if the remote player has the SAME skin as us
+            // AND the model is already loaded — avoids downloading the same GLB twice
+            const canClone = modelLoaded && externalModel && (remoteSkinId === currentSkin);
+            
+            if (canClone) {
                 model = THREE.SkeletonUtils.clone(externalModel);
-                model.position.y = -PLAYER_HEIGHT; // Fix height
+                model.position.y = -PLAYER_HEIGHT;
                 model.traverse(n => { 
                     if(n.isMesh) { 
                         n.castShadow = true; n.receiveShadow = true; 
-                        if (skinData && skinData.color) {
-                             if(n.material) n.material = n.material.clone();
-                             if(n.material.color) n.material.color.setHex(skinData.color);
-                        }
+                        // Remote colour tints don't apply here — already baked into local model
                     } 
                 });
                 group.add(model);
@@ -698,28 +986,29 @@
                     else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
                     else if (n.toLowerCase().includes('idle')) n = 'Idle';
                     else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
-                    
                     if (!pActions[n]) pActions[n] = pMixer.clipAction(clip);
                 });
                 if(pActions['Idle']) pActions['Idle'].play();
+
             } else if (skinData && skinData.file) {
-                // Custom skin or clone failed - Load it
-                // Add placeholder box while loading
+                // Different skin or not yet loaded locally — load the GLB fresh
                 const placeholder = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x888888}));
                 placeholder.position.y = -0.8;
                 group.add(placeholder);
 
-                // Handle default skin URL safety if passed as raw string
                 let url = skinData.file;
-                if (data.skin === 'default' && !url.startsWith('http')) {
+                // Ensure default fallback URL is absolute
+                if (remoteSkinId === 'default' && !url.startsWith('http')) {
                      url = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
                 }
 
                 new THREE.GLTFLoader().load(url, (gltf) => {
+                    // Player may have left before model loaded
+                    if (!otherPlayers[pid]) return;
+
                     group.remove(placeholder);
                     model = gltf.scene;
                     
-                    // Fixed scaling and animation normalization for custom skins
                     if (skinData.scale) {
                         model.scale.set(skinData.scale, skinData.scale, skinData.scale);
                     } else {
@@ -727,13 +1016,8 @@
                         const size = new THREE.Vector3();
                         bbox.getSize(size);
                         const h = size.y;
-                        const targetH = 2.0; 
-                        if (h > 0) {
-                            const s = targetH / h;
-                            model.scale.set(s, s, s);
-                        } else {
-                            model.scale.set(0.4, 0.4, 0.4);
-                        }
+                        if (h > 0) { model.scale.set(2.0 / h, 2.0 / h, 2.0 / h); }
+                        else { model.scale.set(0.4, 0.4, 0.4); }
                     }
                     
                     model.position.y = -PLAYER_HEIGHT;
@@ -749,29 +1033,29 @@
                     group.add(model);
                     pMixer = new THREE.AnimationMixer(model);
                     
-                    // Rename animations for specific GLB structure and consistency
                     gltf.animations.forEach(clip => { 
                         let n = clip.name;
                         if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
                         else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
                         else if (n.toLowerCase().includes('idle')) n = 'Idle';
                         else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
-                        
                         if (!pActions[n]) pActions[n] = pMixer.clipAction(clip); 
                     });
                     
                     if(pActions['Idle']) pActions['Idle'].play();
                     
+                    // Patch the player record now that async load is done
                     if(otherPlayers[pid]) {
                         otherPlayers[pid].mixer = pMixer;
                         otherPlayers[pid].actions = pActions;
+                        otherPlayers[pid].model = model;
+                        otherPlayers[pid].currentAction = 'Idle';
                     }
                 }, undefined, (error) => {
                     console.error("Failed to load model for player " + pid, error);
-                    // Keep placeholder if failed
                 });
             } else {
-                // Fallback box
+                // Absolute fallback — green box
                 model = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.6), new THREE.MeshLambertMaterial({color: 0x00ff00}));
                 model.position.y = -0.8;
                 model.castShadow = true; model.receiveShadow = true;
@@ -793,6 +1077,7 @@
                 targetPos: new THREE.Vector3(data.x, data.y, data.z), 
                 targetRot: data.ry,
                 data: data,
+                skin: remoteSkinId,
                 lastSeenTime: Date.now()
             };
             otherPlayers[pid] = p;
@@ -855,7 +1140,7 @@
 
         function broadcastAction(type, data) { 
             if (!currentUser) return;
-            if (type === 'PLACE' || type === 'BREAK') {
+            if (type === 'PLACE' || type === 'BREAK' || type === 'TOGGLE') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
                     ...data,
                     author: userId,
@@ -929,6 +1214,58 @@
             
             const loadTile = (file, index) => {
                 return new Promise((resolve) => {
+                    // ── Procedural textures for special blocks ──
+                    if (file.startsWith('__')) {
+                        const tx = (index % ATLAS_COLS) * S;
+                        const ty = Math.floor(index / ATLAS_COLS) * S;
+                        ctx.save();
+                        if (file.includes('door_front')) {
+                            // Door front – vertical planks with handle
+                            ctx.fillStyle = '#8B5E3C'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#6B3F1E';
+                            for (let i = 0; i < S; i += 8) { ctx.fillRect(tx+i, ty, 1, S); }
+                            ctx.fillRect(tx, ty + S/2 - 1, S, 2);
+                            // handle
+                            ctx.fillStyle = '#DAA520';
+                            ctx.fillRect(tx + S*0.72, ty + S*0.45, 3, 5);
+                        } else if (file.includes('door_side')) {
+                            ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#5B3010';
+                            for (let i = 0; i < S; i += 6) { ctx.fillRect(tx, ty+i, S, 1); }
+                        } else if (file.includes('door_top')) {
+                            ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#5B3010';
+                            ctx.fillRect(tx, ty+S/2, S, 2);
+                            ctx.fillRect(tx+S/2, ty, 2, S);
+                        } else if (file.includes('chest_front')) {
+                            // Chest front – wood body + lock
+                            ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#8B5E1A';
+                            ctx.fillRect(tx+1, ty+S/2, S-2, 2);
+                            ctx.fillRect(tx+1, ty+1, S-2, 2);
+                            ctx.fillRect(tx+1, ty+S-3, S-2, 2);
+                            // lock
+                            ctx.fillStyle = '#DAA520';
+                            ctx.fillRect(tx+S/2-3, ty+S/2-4, 6, 5);
+                            ctx.fillStyle = '#B8860B';
+                            ctx.fillRect(tx+S/2-2, ty+S/2-6, 4, 3);
+                        } else if (file.includes('chest_side')) {
+                            ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#8B5E1A';
+                            ctx.fillRect(tx+1, ty+S/2, S-2, 2);
+                            ctx.fillRect(tx+1, ty+1, S-2, 2);
+                        } else if (file.includes('chest_top')) {
+                            ctx.fillStyle = '#B8842A'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#8B5E1A';
+                            ctx.fillRect(tx+S/4, ty+1, S/2, S-2);
+                            ctx.fillRect(tx+1, ty+S/4, S-2, S/2);
+                        } else {
+                            ctx.fillStyle = '#888'; ctx.fillRect(tx, ty, S, S);
+                        }
+                        ctx.restore();
+                        resolve();
+                        return;
+                    }
                     const img = new Image();
                     img.crossOrigin = "Anonymous";
                     img.onload = () => {
@@ -1011,7 +1348,13 @@
                         const wx = cx*CHUNK_SIZE+x, wz = cz*CHUNK_SIZE+z;
                         const type = getBlock(wx, y, wz);
                         if(type === 0 || !BLOCKS[type]) continue;
+                        // Open doors are handled as separate meshes – skip in chunk
+                        if (BLOCKS[type].isDoor) {
+                            const dk = `${wx},${y},${wz}`;
+                            if (blockStates[dk] && blockStates[dk].open) continue;
+                        }
                         const isTorch = BLOCKS[type].isTorch;
+                        const isDoor  = BLOCKS[type].isDoor && (!blockStates[`${wx},${y},${wz}`] || !blockStates[`${wx},${y},${wz}`].open);
                         const faces = [
                             { n:[1,0,0],  v:[1,0,0, 1,1,0, 1,1,1, 1,0,1], ao:0.8 },
                             { n:[-1,0,0], v:[0,0,1, 0,1,1, 0,1,0, 0,0,0], ao:0.8 },
@@ -1022,10 +1365,12 @@
                         ];
                         faces.forEach((f, fi) => {
                             const nType = getBlock(wx+f.n[0], y+f.n[1], wz+f.n[2]);
-                            if (!isTorch) if(nType !== 0 && (!BLOCKS[nType].transparent || nType === type)) return;
+                            if (!isTorch && !isDoor) if(nType !== 0 && (!BLOCKS[nType].transparent || nType === type)) return;
                             for(let i=0; i<4; i++) {
                                 let vx = f.v[i*3], vy = f.v[i*3+1], vz = f.v[i*3+2];
                                 if(isTorch) { vx = 0.4375 + vx*0.125; vy = vy*0.625; vz = 0.4375 + vz*0.125; }
+                                // Closed door: thin slab (0.075 thick) centred front face
+                                else if(isDoor) { vx = 0.4625 + vx*0.075; vy = vy; vz = vz; }
                                 pos.push(wx+vx, y+vy, wz+vz); norm.push(...f.n); 
                                 if(isTorch) color.push(1.5, 1.3, 1.0); else color.push(f.ao, f.ao, f.ao);
                             }
@@ -1086,12 +1431,40 @@
                 }
 
                 if(place) {
+                    // ── Right-click on existing interactive block ──
+                    const targetType = getBlock(pbx, pby, pbz);
+                    if (BLOCKS[targetType] && BLOCKS[targetType].isDoor) {
+                        toggleDoor(pbx, pby, pbz);
+                        showHint(blockStates[`${pbx},${pby},${pbz}`]?.open ? '🚪 Door opened' : '🚪 Door closed');
+                        return true;
+                    }
+                    if (BLOCKS[targetType] && BLOCKS[targetType].isChest) {
+                        const ck = `${pbx},${pby},${pbz}`;
+                        openChestUI(ck);
+                        return true;
+                    }
+                    // Also check the block we ARE hitting (bx,by,bz) for right-click on its face
+                    const hitType = getBlock(bx, by, bz);
+                    if (BLOCKS[hitType] && BLOCKS[hitType].isDoor) {
+                        toggleDoor(bx, by, bz);
+                        showHint(blockStates[`${bx},${by},${bz}`]?.open ? '🚪 Door opened' : '🚪 Door closed');
+                        return true;
+                    }
+                    if (BLOCKS[hitType] && BLOCKS[hitType].isChest) {
+                        const ck = `${bx},${by},${bz}`;
+                        openChestUI(ck);
+                        return true;
+                    }
+
                     const item = inventory[activeHotbarIndex];
                     if(!item || item.count <= 0) return false;
                     const id = item.id;
                     if(id === 0 || getBlock(pbx, pby, pbz) !== 0) return false;
                     const px = playerGroup.position.x, py = playerGroup.position.y, pz = playerGroup.position.z;
                     if(px + PLAYER_RADIUS > pbx && px - PLAYER_RADIUS < pbx + 1 && pz + PLAYER_RADIUS > pbz && pz - PLAYER_RADIUS < pbz + 1 && py > pby && py - PLAYER_HEIGHT < pby + 1) return false;
+
+                    // Door needs space for top half too
+                    if (BLOCKS[id] && BLOCKS[id].isDoorBottom && getBlock(pbx, pby+1, pbz) !== 0) return false;
                     
                     item.count--;
                     if(item.count <= 0) inventory[activeHotbarIndex] = null;
@@ -1100,6 +1473,19 @@
 
                     const k = `${pbx},${pby},${pbz}`;
                     world[k] = id; if(id === 10) activeTorches.push({x:pbx, y:pby, z:pbz, k});
+
+                    // ── Door: auto-place top half + store facing ──
+                    if (BLOCKS[id] && BLOCKS[id].isDoorBottom) {
+                        const kt = `${pbx},${pby+1},${pbz}`;
+                        world[kt] = 102; // door top
+                        // Derive facing from player rotation
+                        const ry = ((playerGroup.rotation.y % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+                        const facing = Math.round(ry / (Math.PI/2)) % 4;
+                        blockStates[k]  = { open: false, facing };
+                        blockStates[kt] = { open: false, facing };
+                        broadcastAction('PLACE', { x: pbx, y: pby+1, z: pbz, id: 102, facing });
+                        refreshChunk(pbx, pbz);
+                    }
                     
                     if (id === 100) {
                         setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'claims', chunkKey), {
@@ -1143,14 +1529,37 @@
                     if(type === 0 || BLOCKS[type]?.indestructible) return false;
                     
                     let added = false;
-                    for(let i=0; i<30; i++) { if(inventory[i] && inventory[i].id === type) { inventory[i].count++; added = true; break; } }
-                    if(!added) { for(let i=0; i<30; i++) { if(!inventory[i]) { inventory[i] = {id: type, count: 1}; break; } } }
+                    // Only give the door item when breaking the bottom half
+                    const giveItem = !(BLOCKS[type] && BLOCKS[type].isDoorTop);
+                    const itemToGive = (BLOCKS[type] && BLOCKS[type].isDoorTop) ? 101 : type;
+                    if (giveItem) {
+                        for(let i=0; i<30; i++) { if(inventory[i] && inventory[i].id === itemToGive) { inventory[i].count++; added = true; break; } }
+                        if(!added) { for(let i=0; i<30; i++) { if(!inventory[i]) { inventory[i] = {id: itemToGive, count: 1}; break; } } }
+                    }
                     updateHotbarFromInventory();
                     updateUI();
 
                     const k = `${bx},${by},${bz}`;
                     world[k] = 0; 
                     if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
+
+                    // ── Door: also break the other half ──
+                    if (BLOCKS[type] && BLOCKS[type].isDoor) {
+                        const otherY = BLOCKS[type].isDoorBottom ? by + 1 : by - 1;
+                        const ko = `${bx},${otherY},${bz}`;
+                        world[ko] = 0;
+                        delete blockStates[k]; delete blockStates[ko];
+                        if (doorMeshes[k])  { scene.remove(doorMeshes[k]);  delete doorMeshes[k]; }
+                        if (doorMeshes[ko]) { scene.remove(doorMeshes[ko]); delete doorMeshes[ko]; }
+                        broadcastAction('BREAK', { x: bx, y: otherY, z: bz, prevId: BLOCKS[type].isDoorBottom ? 102 : 101 });
+                        refreshChunk(bx, bz);
+                    }
+
+                    // ── Chest: clear its contents ──
+                    if (BLOCKS[type] && BLOCKS[type].isChest) {
+                        delete chestContents[k];
+                        if (activeChestKey === k) closeChestUI();
+                    }
                     
                     // Unclaim Logic
                     if (type === 100) {
@@ -1190,7 +1599,14 @@
                 for(let x = Math.floor(p.x - r); x <= Math.floor(p.x + r); x++) {
                     for(let z = Math.floor(p.z - r); z <= Math.floor(p.z + r); z++) {
                         const b = getBlock(x, y, z);
-                        if(b !== 0 && b !== 11 && b !== 10) return true;
+                        if(b !== 0 && b !== 11 && b !== 10) {
+                            // Open doors are passable
+                            if (BLOCKS[b] && BLOCKS[b].isDoor) {
+                                const dk = `${x},${y},${z}`;
+                                if (blockStates[dk] && blockStates[dk].open) continue;
+                            }
+                            return true;
+                        }
                     }
                 }
             }
@@ -1269,6 +1685,7 @@
             
             document.getElementById('shop-btn').onclick = (e) => { e.stopPropagation(); toggleShop(); };
             document.getElementById('close-shop').onclick = () => toggleShop();
+            document.getElementById('close-chest').onclick = () => closeChestUI();
             document.getElementById('del-mode-btn').onclick = () => { deleteMode = !deleteMode; document.getElementById('del-mode-btn').innerText = `DELETE MODE: ${deleteMode?'ON':'OFF'}`; };
             
             document.getElementById('shop-mode-btn').onclick = () => { 
@@ -1421,7 +1838,7 @@
             
             if(tab === 'blocks') {
                 Object.keys(BLOCKS).forEach(id => {
-                    const b = BLOCKS[id]; if(!b.price) return;
+                    const b = BLOCKS[id]; if(!b.price || b.inShop === false) return;
                     createShopItem(grid, b.name, b.price, b, 'block', () => buyItem(id, b.price), (e) => { e.preventDefault(); sellItem(id, b.sellPrice || 0); });
                 });
             } else if(tab === 'tools') {
@@ -1568,6 +1985,8 @@
                     
                     mixer = new THREE.AnimationMixer(externalModel); 
                     actions = {};
+                    // Always store raw animations on the scene object for remote player cloning
+                    externalModel.animations = gltf.animations;
                     // Renaming animations for consistency
                     gltf.animations.forEach((clip) => { 
                         let n = clip.name;
@@ -1638,7 +2057,7 @@
         function animate() {
             if(!running) return;
             requestAnimationFrame(animate);
-            if(paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('shop-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex') { renderer.render(scene, camera); return; }
+            if(paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('shop-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex' || document.getElementById('chest-overlay').style.display === 'flex') { renderer.render(scene, camera); return; }
             const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
             if(mixer) mixer.update(dt);
             if(isFlying) { let flyVel = 0; if (keys[' '] || isTouchingUp) flyVel += 1; if (keys['shift'] || isTouchingDown) flyVel -= 1; vel.y = flyVel * 10; } else { vel.y -= 24 * dt; }
@@ -1732,6 +2151,8 @@
                         playerGroup.add(externalModel);
                         mixer = new THREE.AnimationMixer(externalModel); 
                         actions = {};
+                        // Always store animations on the scene object so remote player clones can access them
+                        externalModel.animations = gltf.animations;
                         gltf.animations.forEach((clip) => { 
                             let n = clip.name;
                             if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
