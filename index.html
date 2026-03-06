@@ -99,7 +99,89 @@
         .menu-card { background: #8B8B8B; padding: 20px; border: 4px solid #000; display: flex; flex-direction: column; gap: 10px; width: 200px; }
         .menu-btn { padding: 12px; background: #777; color: #fff; border: 3px solid #000; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer; text-align: center; }
 
-        #loading { position: fixed; inset: 0; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
+        /* ── LOADING / MAIN MENU ── */
+        #loading {
+            position: fixed; inset: 0; background: #0a0a0f;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9999; overflow: hidden;
+        }
+        #loading-canvas {
+            position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+        }
+        #menu-card {
+            position: relative; z-index: 2;
+            display: flex; flex-direction: column; align-items: center; gap: 0;
+            animation: menuFadeIn 0.8s ease forwards;
+        }
+        @keyframes menuFadeIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+
+        #game-title {
+            font-size: clamp(18px, 5vw, 32px);
+            color: #fff;
+            text-shadow: 0 0 20px #4af, 3px 3px 0 #000;
+            letter-spacing: 4px;
+            margin-bottom: 4px;
+            animation: titlePulse 3s ease-in-out infinite;
+        }
+        @keyframes titlePulse {
+            0%,100% { text-shadow: 0 0 20px #4af, 3px 3px 0 #000; }
+            50% { text-shadow: 0 0 40px #8df, 0 0 80px #4af, 3px 3px 0 #000; }
+        }
+        #game-subtitle {
+            font-size: clamp(6px, 1.5vw, 9px); color: #4af; letter-spacing: 6px;
+            margin-bottom: 40px; opacity: 0.8;
+        }
+
+        #progress-wrap {
+            width: min(320px, 80vw);
+            background: rgba(255,255,255,0.05);
+            border: 2px solid #333; padding: 3px; margin-bottom: 10px;
+        }
+        #progress-bar {
+            height: 12px; width: 0%; background: linear-gradient(90deg, #2af, #07f);
+            transition: width 0.4s ease;
+            box-shadow: 0 0 10px #4af;
+        }
+        #loading-text {
+            font-size: clamp(6px, 1.5vw, 8px); color: #888; margin-bottom: 30px;
+            min-height: 16px; text-align: center; letter-spacing: 2px;
+        }
+
+        #start-btn {
+            padding: 14px 36px; font-family: 'Press Start 2P'; font-size: clamp(9px, 2vw, 12px);
+            cursor: pointer; background: linear-gradient(135deg, #1a6, #0a4);
+            color: #fff; border: 3px solid #0f0;
+            box-shadow: 0 0 20px #0f08, 0 4px 0 #063;
+            display: none; margin-bottom: 20px;
+            animation: btnGlow 2s ease-in-out infinite;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        #start-btn:hover { transform: translateY(-2px); box-shadow: 0 0 30px #0f0a, 0 6px 0 #063; }
+        #start-btn:active { transform: translateY(2px); box-shadow: 0 0 10px #0f08, 0 2px 0 #063; }
+        @keyframes btnGlow {
+            0%,100% { box-shadow: 0 0 20px #0f08, 0 4px 0 #063; }
+            50% { box-shadow: 0 0 40px #0f0b, 0 4px 0 #063; }
+        }
+
+        #join-loading-screen {
+            position: fixed; inset: 0; background: #0a0a0f;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9998; gap: 20px;
+        }
+        #join-loading-screen.visible { display: flex; }
+        #join-title { font-size: clamp(10px, 2.5vw, 16px); color: #4af; text-shadow: 0 0 15px #4af; letter-spacing: 4px; }
+        #join-progress-wrap { width: min(360px, 80vw); background: rgba(255,255,255,0.05); border: 2px solid #333; padding: 3px; }
+        #join-progress-bar { height: 14px; width: 0%; background: linear-gradient(90deg, #f80, #fa0); transition: width 0.5s ease; box-shadow: 0 0 10px #f80; }
+        #join-status { font-size: clamp(6px, 1.5vw, 8px); color: #aaa; letter-spacing: 2px; text-align: center; min-height: 20px; }
+        #join-step-list { display: flex; flex-direction: column; gap: 6px; width: min(320px, 75vw); }
+        .join-step { font-size: clamp(5px, 1.2vw, 7px); color: #555; display: flex; align-items: center; gap: 8px; transition: color 0.3s; }
+        .join-step.done { color: #4f4; }
+        .join-step.active { color: #fa0; }
+        .join-step-icon { width: 10px; height: 10px; border: 2px solid currentColor; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; }
+        .join-step.done .join-step-icon::after { content: '✓'; }
+        .join-step.active .join-step-icon { animation: stepSpin 0.8s linear infinite; border-top-color: transparent; border-radius: 50%; }
+        @keyframes stepSpin { to { transform: rotate(360deg); } }
+
         #start-btn { padding: 12px 30px; font-family: 'Press Start 2P'; font-size: 12px; cursor: pointer; background: #777; color: #fff; border: 4px solid #000; margin-top: 15px; display: none;}
         
         #del-mode-btn { background: #a33; margin-top: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; }
@@ -121,9 +203,27 @@
 </head>
 <body>
     <div id="loading">
-        <h1 style="font-size: 18px; text-shadow: 3px 3px #555; text-align: center;">VOXEL POCKET</h1>
-        <p id="loading-text" style="font-size: 7px; color: #aaa; margin-top: 10px;">INITIALIZING...</p>
-        <button id="start-btn">ENTER WORLD (GOOGLE LOGIN)</button>
+        <canvas id="loading-canvas"></canvas>
+        <div id="menu-card">
+            <div id="game-title">VOXEL POCKET</div>
+            <div id="game-subtitle">MULTIPLAYER EDITION</div>
+            <div id="progress-wrap"><div id="progress-bar"></div></div>
+            <p id="loading-text">INITIALIZING...</p>
+            <button id="start-btn">▶ ENTER WORLD</button>
+        </div>
+    </div>
+
+    <div id="join-loading-screen">
+        <div id="join-title">LOADING WORLD...</div>
+        <div id="join-progress-wrap"><div id="join-progress-bar"></div></div>
+        <div id="join-status">PREPARING...</div>
+        <div id="join-step-list">
+            <div class="join-step" id="step-auth"><div class="join-step-icon"></div>AUTHENTICATING</div>
+            <div class="join-step" id="step-save"><div class="join-step-icon"></div>LOADING SAVE DATA</div>
+            <div class="join-step" id="step-skin"><div class="join-step-icon"></div>LOADING PLAYER SKIN</div>
+            <div class="join-step" id="step-network"><div class="join-step-icon"></div>CONNECTING TO SERVER</div>
+            <div class="join-step" id="step-terrain"><div class="join-step-icon"></div>GENERATING TERRAIN</div>
+        </div>
     </div>
 
     <div id="ui">
@@ -339,6 +439,111 @@
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
         let sharedChunkMaterial = null;
+
+        // ── Performance: track last player chunk to throttle updateWorld ──
+        let lastPlayerCX = null, lastPlayerCZ = null;
+        // ── Performance: sky color cache ──
+        const _skyDay = new THREE.Color(0x87CEEB), _skyNight = new THREE.Color(0x0a0a1a);
+        let _lastSkyAngle = -999;
+        // ── Performance: selection box throttle ──
+        let _selectionFrame = 0;
+
+        // ══════════════════════════════════════════
+        //  LOADING SCREEN ANIMATION
+        // ══════════════════════════════════════════
+        (function initLoadingCanvas() {
+            const canvas = document.getElementById('loading-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            let W, H, particles = [];
+            function resize() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
+            }
+            resize();
+            window.addEventListener('resize', resize);
+
+            const COLS = ['#0af', '#07f', '#05c', '#048', '#036'];
+            const BLOCK_CHARS = ['▪','■','▫','□'];
+            for (let i = 0; i < 60; i++) {
+                particles.push({
+                    x: Math.random() * window.innerWidth,
+                    y: Math.random() * window.innerHeight,
+                    size: 8 + Math.random() * 18,
+                    speed: 0.3 + Math.random() * 0.8,
+                    col: COLS[Math.floor(Math.random() * COLS.length)],
+                    char: BLOCK_CHARS[Math.floor(Math.random() * BLOCK_CHARS.length)],
+                    opacity: 0.05 + Math.random() * 0.2,
+                    drift: (Math.random() - 0.5) * 0.3
+                });
+            }
+            let raf;
+            function draw() {
+                if (!document.getElementById('loading').offsetParent && document.getElementById('loading').style.display === 'none') {
+                    cancelAnimationFrame(raf); return;
+                }
+                ctx.clearRect(0, 0, W, H);
+                for (const p of particles) {
+                    ctx.globalAlpha = p.opacity;
+                    ctx.fillStyle = p.col;
+                    ctx.font = `bold ${p.size}px monospace`;
+                    ctx.fillText(p.char, p.x, p.y);
+                    p.y += p.speed; p.x += p.drift;
+                    if (p.y > H + 30) { p.y = -30; p.x = Math.random() * W; }
+                    if (p.x < -30 || p.x > W + 30) p.x = Math.random() * W;
+                }
+                ctx.globalAlpha = 1;
+                raf = requestAnimationFrame(draw);
+            }
+            draw();
+        })();
+
+        // ── Main menu progress bar ──
+        function setMenuProgress(pct, text) {
+            const bar = document.getElementById('progress-bar');
+            const txt = document.getElementById('loading-text');
+            if (bar) bar.style.width = pct + '%';
+            if (txt) txt.innerText = text;
+        }
+
+        // ── Join loading screen steps ──
+        const JOIN_STEPS = ['step-auth','step-save','step-skin','step-network','step-terrain'];
+        let _joinStep = -1;
+        function showJoinScreen() {
+            document.getElementById('loading').style.display = 'none';
+            const js = document.getElementById('join-loading-screen');
+            js.classList.add('visible');
+        }
+        function setJoinStep(idx, statusText) {
+            if (_joinStep >= 0 && _joinStep < JOIN_STEPS.length) {
+                const prev = document.getElementById(JOIN_STEPS[_joinStep]);
+                if (prev) { prev.classList.remove('active'); prev.classList.add('done'); }
+            }
+            _joinStep = idx;
+            if (idx >= 0 && idx < JOIN_STEPS.length) {
+                const el = document.getElementById(JOIN_STEPS[idx]);
+                if (el) el.classList.add('active');
+            }
+            const pct = Math.round(((idx + 1) / JOIN_STEPS.length) * 100);
+            const jpb = document.getElementById('join-progress-bar');
+            if (jpb) jpb.style.width = pct + '%';
+            const js = document.getElementById('join-status');
+            if (js) js.innerText = statusText || '';
+        }
+        function finishJoinScreen() {
+            JOIN_STEPS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) { el.classList.remove('active'); el.classList.add('done'); }
+            });
+            const jpb = document.getElementById('join-progress-bar');
+            if (jpb) jpb.style.width = '100%';
+            const js = document.getElementById('join-status');
+            if (js) js.innerText = 'ENTERING WORLD...';
+            setTimeout(() => {
+                const screen = document.getElementById('join-loading-screen');
+                if (screen) screen.classList.remove('visible');
+            }, 600);
+        }
 
         function makeTextSprite(message) {
             const canvas = document.createElement('canvas');
@@ -854,9 +1059,16 @@
         function refreshChunk(wx, wz) {
             const cx = Math.floor(wx/CHUNK_SIZE), cz = Math.floor(wz/CHUNK_SIZE);
             const k = `${cx},${cz}`;
-            if(chunkMeshes[k]) { scene.remove(chunkMeshes[k]); clickables = clickables.filter(c => c !== chunkMeshes[k]); delete chunkMeshes[k]; }
+            if(chunkMeshes[k]) {
+                scene.remove(chunkMeshes[k]);
+                clickables = clickables.filter(c => c !== chunkMeshes[k]);
+                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose(); // ── Perf: free GPU memory
+                delete chunkMeshes[k];
+            }
             const m = buildChunk(cx, cz);
             if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
+            // Reset chunk tracker so updateWorld won't skip this chunk area
+            lastPlayerCX = null; lastPlayerCZ = null;
         }
 
         function interact(place) {
@@ -1399,9 +1611,26 @@
 
         function updateWorld() {
             const px = Math.floor(playerGroup.position.x/CHUNK_SIZE), pz = Math.floor(playerGroup.position.z/CHUNK_SIZE);
+            // ── Performance: skip if player hasn't changed chunk ──
+            if (px === lastPlayerCX && pz === lastPlayerCZ) return;
+            lastPlayerCX = px; lastPlayerCZ = pz;
+
+            // Load chunks in range
             for(let x=px-RENDER_DIST; x<=px+RENDER_DIST; x++) {
                 for(let z=pz-RENDER_DIST; z<=pz+RENDER_DIST; z++) {
                     const k = `${x},${z}`; if(!chunkMeshes[k]) { const m = buildChunk(x, z); if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }}
+                }
+            }
+            // ── Performance: unload chunks that are now out of range ──
+            const UNLOAD_DIST = RENDER_DIST + 2;
+            for (const k in chunkMeshes) {
+                const [cx, cz] = k.split(',').map(Number);
+                if (Math.abs(cx - px) > UNLOAD_DIST || Math.abs(cz - pz) > UNLOAD_DIST) {
+                    const mesh = chunkMeshes[k];
+                    scene.remove(mesh);
+                    clickables = clickables.filter(c => c !== mesh);
+                    if (mesh.geometry) mesh.geometry.dispose();
+                    delete chunkMeshes[k];
                 }
             }
         }
@@ -1434,10 +1663,21 @@
             sunLight.position.set(playerGroup.position.x + Math.sin(angle) * 60, playerGroup.position.y + Math.cos(angle) * 60, playerGroup.position.z + 20);
             sunLight.target.position.copy(playerGroup.position);
             
-            const skyColor = Math.cos(angle) > 0 ? new THREE.Color(0x87CEEB) : new THREE.Color(0x0a0a1a);
-            scene.background = skyColor; scene.fog.color = skyColor; stars.material.opacity = Math.cos(angle) < 0 ? 1 : 0;
-            raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
-            if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
+            // ── Performance: only update sky when angle changes meaningfully ──
+            if (Math.abs(angle - _lastSkyAngle) > 0.01) {
+                _lastSkyAngle = angle;
+                const isDay = Math.cos(angle) > 0;
+                const skyColor = isDay ? _skyDay : _skyNight;
+                scene.background = skyColor; scene.fog.color.copy(skyColor);
+                stars.material.opacity = isDay ? 0 : 1;
+            }
+
+            // ── Performance: only run selection raycaster every 2 frames ──
+            _selectionFrame++;
+            if (_selectionFrame % 2 === 0) {
+                raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
+                if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
+            }
             updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld(); renderer.render(scene, camera);
         }
 
@@ -1446,72 +1686,77 @@
             userId = user.uid;
             userDisplayName = user.displayName || user.email.split('@')[0] || userId.substr(0, 8);
             document.getElementById('user-display-id').innerText = userDisplayName;
-            document.getElementById('loading').style.display = 'none';
+
+            // Show the join loading screen
+            showJoinScreen();
+            setJoinStep(0, 'AUTHENTICATING USER...');
+            await new Promise(r => setTimeout(r, 300)); // brief pause so UI paints
+
+            setJoinStep(1, 'LOADING SAVE DATA...');
             await loadGame();
             
+            setJoinStep(2, 'LOADING PLAYER SKIN...');
             // Re-load correct skin for local player
             if(currentSkin && SKINS[currentSkin]) {
                  const s = SKINS[currentSkin];
-                 new THREE.GLTFLoader().load(s.file, (gltf) => {
-                    if (externalModel) playerGroup.remove(externalModel);
-                    externalModel = gltf.scene;
-                    
-                    // Fixed scaling logic here
-                    if (s.scale) {
-                        externalModel.scale.set(s.scale, s.scale, s.scale);
-                    } else {
-                        const bbox = new THREE.Box3().setFromObject(externalModel);
-                        const size = new THREE.Vector3();
-                        bbox.getSize(size);
-                        const h = size.y;
-                        const targetH = 2.0; 
-                        if (h > 0) {
-                            const scale = (targetH / h);
-                            externalModel.scale.set(scale, scale, scale);
+                 await new Promise((resolve) => {
+                    new THREE.GLTFLoader().load(s.file, (gltf) => {
+                        if (externalModel) playerGroup.remove(externalModel);
+                        externalModel = gltf.scene;
+                        if (s.scale) {
+                            externalModel.scale.set(s.scale, s.scale, s.scale);
                         } else {
-                            externalModel.scale.set(0.4, 0.4, 0.4);
-                        }
-                    }
-                    
-                    externalModel.rotation.y = Math.PI; 
-                    externalModel.position.y = -PLAYER_HEIGHT; 
-                    externalModel.traverse(n => { 
-                        if(n.isMesh) { 
-                            n.castShadow = true; n.receiveShadow = true; 
-                            if (s.color) {
-                                if(n.material) n.material = n.material.clone();
-                                if(n.material.color) n.material.color.setHex(s.color);
+                            const bbox = new THREE.Box3().setFromObject(externalModel);
+                            const size = new THREE.Vector3();
+                            bbox.getSize(size);
+                            const h = size.y;
+                            const targetH = 2.0; 
+                            if (h > 0) {
+                                const scale = (targetH / h);
+                                externalModel.scale.set(scale, scale, scale);
+                            } else {
+                                externalModel.scale.set(0.4, 0.4, 0.4);
                             }
-                        } 
-                    }); 
-                    playerGroup.add(externalModel);
-                    mixer = new THREE.AnimationMixer(externalModel); 
-                    actions = {};
-                    
-                    // Rename animations for consistency
-                    gltf.animations.forEach((clip) => { 
-                        let n = clip.name;
-                        if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
-                        else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
-                        else if (n.toLowerCase().includes('idle')) n = 'Idle';
-                        else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
-
-                        if (!actions[n]) actions[n] = mixer.clipAction(clip); 
-                    });
-                    
-                    if(actions['Idle']) {
-                        activeAction = actions['Idle'];
-                        activeAction.play();
-                    }
-                    updatePOV();
-                 }, undefined, (err) => {
-                     console.error("Local player model load failed", err);
+                        }
+                        externalModel.rotation.y = Math.PI; 
+                        externalModel.position.y = -PLAYER_HEIGHT; 
+                        externalModel.traverse(n => { 
+                            if(n.isMesh) { 
+                                n.castShadow = true; n.receiveShadow = true; 
+                                if (s.color) {
+                                    if(n.material) n.material = n.material.clone();
+                                    if(n.material.color) n.material.color.setHex(s.color);
+                                }
+                            } 
+                        }); 
+                        playerGroup.add(externalModel);
+                        mixer = new THREE.AnimationMixer(externalModel); 
+                        actions = {};
+                        gltf.animations.forEach((clip) => { 
+                            let n = clip.name;
+                            if (n === 'Skeleton|Idle' || n === 'Idle') n = 'Idle';
+                            else if (n === 'Skeleton|Walking' || n === 'Walking') n = 'Walking';
+                            else if (n.toLowerCase().includes('idle')) n = 'Idle';
+                            else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
+                            if (!actions[n]) actions[n] = mixer.clipAction(clip); 
+                        });
+                        if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
+                        updatePOV();
+                        resolve();
+                     }, undefined, (err) => {
+                         console.error("Local player model load failed", err);
+                         resolve();
+                     });
                  });
             }
 
             if(activeTool) currentMineDelay = 400 * activeTool.speedMod;
 
+            setJoinStep(3, 'CONNECTING TO SERVER...');
             initNetwork();
+            await new Promise(r => setTimeout(r, 400));
+
+            setJoinStep(4, 'GENERATING TERRAIN...');
             playerGroup.position.set(0.5, 32, 0.5);
             for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
             running = true;
@@ -1519,90 +1764,100 @@
             if(!isTouch) document.body.requestPointerLock();
             else document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
             updateWorld();
+            await new Promise(r => setTimeout(r, 500));
+
+            finishJoinScreen();
             animate();
         }
 
         async function init() {
+            setMenuProgress(10, 'LOADING TEXTURES...');
             atlas = await createAtlas();
+            setMenuProgress(30, 'BUILDING SCENE...');
             scene = new THREE.Scene(); scene.fog = new THREE.Fog(0x87CEEB, 15, 45);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
-            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); 
-            renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+
+            // ── Performance: limit pixel ratio, enable optimisations ──
+            renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, isTouch ? 1.5 : 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.sortObjects = false; // we handle transparency manually via alphaTest
             document.body.appendChild(renderer.domElement);
             
             scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); 
             sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            sunLight.castShadow = true; 
-            sunLight.shadow.mapSize.width = 2048; 
-            sunLight.shadow.mapSize.height = 2048; 
-            const d = 50; 
-            sunLight.shadow.camera.left = -d;
-            sunLight.shadow.camera.right = d;
-            sunLight.shadow.camera.top = d;
-            sunLight.shadow.camera.bottom = -d;
-            sunLight.shadow.camera.near = 0.5;
-            sunLight.shadow.camera.far = 150;
+            sunLight.castShadow = true;
+            // ── Performance: halve shadow map on mobile ──
+            const shadowRes = isTouch ? 1024 : 2048;
+            sunLight.shadow.mapSize.width = shadowRes;
+            sunLight.shadow.mapSize.height = shadowRes;
+            const d = 40; 
+            sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
+            sunLight.shadow.camera.top = d;  sunLight.shadow.camera.bottom = -d;
+            sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 120;
             sunLight.shadow.bias = -0.0005;
-            scene.add(sunLight);
-            scene.add(sunLight.target); 
+            scene.add(sunLight); scene.add(sunLight.target); 
 
-            raycaster = new THREE.Raycaster(); selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
+            raycaster = new THREE.Raycaster();
+            selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
             scene.add(selectionBox); 
             
+            setMenuProgress(50, 'LOADING PLAYER MODEL...');
             // Initial loader for the default robot
-            new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
-                externalModel = gltf.scene; 
-                // Don't normalize animations for the default robot here as they are already correct
-                // And this is just the loading screen robot
-                externalModel.animations = gltf.animations;
-                
-                // Fixed scaling for default robot
-                const bbox = new THREE.Box3().setFromObject(externalModel);
-                const size = new THREE.Vector3();
-                bbox.getSize(size);
-                const h = size.y;
-                if (h > 0) {
-                    const s = 2.0 / h; // Default robot 2 blocks tall
-                    externalModel.scale.set(s, s, s);
-                } else {
-                    externalModel.scale.set(0.4, 0.4, 0.4);
-                }
-
-                externalModel.rotation.y = Math.PI; 
-                externalModel.position.y = -PLAYER_HEIGHT; // Fix height
-                externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
-                playerGroup.add(externalModel);
-                modelLoaded = true;
-
-                mixer = new THREE.AnimationMixer(externalModel); 
-                gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
-                if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
-                
-            }, undefined, () => {
-                externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x00ff00})); 
-                externalModel.castShadow = true; externalModel.receiveShadow = true;
-                playerGroup.add(externalModel); 
-            });
-            
-            document.getElementById('loading-text').innerText = 'CHECKING AUTH...';
-            setPersistence(auth, browserLocalPersistence).then(() => {
-                onAuthStateChanged(auth, (user) => {
-                    if (user) startGame(user);
-                    else { document.getElementById('loading-text').innerText = 'READY TO CONNECT'; document.getElementById('start-btn').style.display = 'block'; }
+            await new Promise((resolve) => {
+                new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
+                    externalModel = gltf.scene; 
+                    externalModel.animations = gltf.animations;
+                    const bbox = new THREE.Box3().setFromObject(externalModel);
+                    const size = new THREE.Vector3(); bbox.getSize(size);
+                    const h = size.y;
+                    if (h > 0) { const s = 2.0 / h; externalModel.scale.set(s, s, s); }
+                    else { externalModel.scale.set(0.4, 0.4, 0.4); }
+                    externalModel.rotation.y = Math.PI; 
+                    externalModel.position.y = -PLAYER_HEIGHT;
+                    externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
+                    playerGroup.add(externalModel);
+                    modelLoaded = true;
+                    mixer = new THREE.AnimationMixer(externalModel); 
+                    gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                    if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
+                    resolve();
+                }, undefined, () => {
+                    externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x00ff00})); 
+                    externalModel.castShadow = true; externalModel.receiveShadow = true;
+                    playerGroup.add(externalModel);
+                    resolve();
                 });
             });
 
+            setMenuProgress(70, 'CHECKING AUTH...');
             clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
             const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
             setupInput(); updateUI();
+
             document.getElementById('start-btn').onclick = async () => {
                 const provider = new GoogleAuthProvider();
                 try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
             };
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+            setMenuProgress(90, 'CHECKING AUTH...');
+            setPersistence(auth, browserLocalPersistence).then(() => {
+                onAuthStateChanged(auth, (user) => {
+                    setMenuProgress(100, 'READY!');
+                    if (user) {
+                        startGame(user);
+                    } else {
+                        document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
+                        document.getElementById('start-btn').style.display = 'block';
+                    }
+                });
+            });
         }
         let last = performance.now(); init();
     </script>
