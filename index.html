@@ -366,7 +366,6 @@
         const APP_ID = 'pixelbox_v1'; 
 
         const CHUNK_SIZE = 16;
-        const RENDER_DIST = 3;
         const PLAYER_HEIGHT = 1.62;
         const PLAYER_RADIUS = 0.3;
         const DAY_LENGTH_SECONDS = 300; 
@@ -485,7 +484,7 @@
                    hardness: 2.5, isChest: true }
         };
 
-        let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds, stars;
+        let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds;
         let playerGroup, externalModel, cameraPivot, modelLoaded = false;
         let world = {}, chunkMeshes = {}, clickables = [];
         let activeTorches = []; 
@@ -511,11 +510,16 @@
 
         // ── Performance: track last player chunk to throttle updateWorld ──
         let lastPlayerCX = null, lastPlayerCZ = null;
-        // ── Performance: sky color cache ──
-        const _skyDay = new THREE.Color(0x87CEEB), _skyNight = new THREE.Color(0x0a0a1a);
         let _lastSkyAngle = -999;
         // ── Performance: selection box throttle ──
         let _selectionFrame = 0;
+
+        // ── Low-end device detection ──
+        const _isLowEnd = (navigator.hardwareConcurrency || 4) <= 2 || 
+                          (isTouch && (navigator.hardwareConcurrency || 4) <= 4);
+        const RENDER_DIST  = _isLowEnd ? 2 : 3;
+        const _TARGET_DT   = _isLowEnd ? 1/30 : 1/60;  // cap at 30fps on low-end
+        let   _lastFrameTime = 0;
 
         // ══════════════════════════════════════════
         //  LOADING SCREEN ANIMATION
@@ -619,33 +623,28 @@
         // ════════════════════════════════════
 
         function buildOpenDoorGeo() {
-            // A thin panel: 0.95 wide × 1 tall × 0.075 thick, with atlas UVs on front face
+            // Panel: x from 0→0.95 (hinge at x=0), y from 0→1, z=0 (flat)
+            // When rotation.y = +PI/2, vertex (0.95,h,0) → (0,h,0.95): panel runs along +Z ✓
             const b = BLOCKS[101];
             const tFront = b.tiles[4];
             const u0 = (tFront % ATLAS_COLS) / ATLAS_COLS;
             const v0 = 1 - (Math.floor(tFront / ATLAS_COLS) + 1) / ATLAS_ROWS;
             const us = 1 / ATLAS_COLS, vs = 1 / ATLAS_ROWS;
-            const W = 0.95, H = 1.0, D = 0.075;
-            // Simple double-sided quad (panel) — no thickness needed visually
+            const W = 0.95, H = 1.0;
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.Float32BufferAttribute([
-                // front
-                0,0,0,  W,0,0,  W,H,0,  0,H,0,
-                // back
-                W,0,0,  0,0,0,  0,H,0,  W,H,0
+                0,0,0,  W,0,0,  W,H,0,  0,H,0,   // front face
+                W,0,0,  0,0,0,  0,H,0,  W,H,0    // back face
             ], 3));
             geo.setAttribute('uv', new THREE.Float32BufferAttribute([
-                u0,v0, u0+us,v0, u0+us,v0+vs, u0,v0+vs,
-                u0,v0, u0+us,v0, u0+us,v0+vs, u0,v0+vs
+                u0,v0,  u0+us,v0,  u0+us,v0+vs,  u0,v0+vs,
+                u0,v0,  u0+us,v0,  u0+us,v0+vs,  u0,v0+vs
             ], 2));
             const ao = 0.9;
-            geo.setAttribute('color', new THREE.Float32BufferAttribute([
-                ao,ao,ao, ao,ao,ao, ao,ao,ao, ao,ao,ao,
-                ao,ao,ao, ao,ao,ao, ao,ao,ao, ao,ao,ao
-            ], 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(24).fill(ao), 3));
             geo.setAttribute('normal', new THREE.Float32BufferAttribute([
-                0,0,1,  0,0,1,  0,0,1,  0,0,1,
-                0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1
+                0,0,1, 0,0,1, 0,0,1, 0,0,1,
+                0,0,-1,0,0,-1,0,0,-1,0,0,-1
             ], 3));
             geo.setIndex([0,1,2, 0,2,3,  4,5,6, 4,6,7]);
             return geo;
@@ -654,7 +653,6 @@
         function updateDoorMesh(x, y, z) {
             const k = `${x},${y},${z}`;
             const state = blockStates[k];
-            // Remove old open-door mesh
             if (doorMeshes[k]) {
                 scene.remove(doorMeshes[k]);
                 clickables = clickables.filter(c => c !== doorMeshes[k]);
@@ -666,32 +664,25 @@
             const geo = buildOpenDoorGeo();
             const mesh = new THREE.Mesh(geo, sharedChunkMaterial);
             mesh.castShadow = true;
-            mesh.userData.doorKey = k;   // so interact() knows what block this is
+            mesh.userData.doorKey = k;
 
+            // Hinge is at the front-left corner of the block.
+            // rotation.y = +PI/2  → panel swings from lying along X to lying along +Z (inside block).
+            // Vary hinge side by facing so the door always swings inward.
             const f = state.facing || 0;
-            // Rotate and position the panel along the hinge edge of the cell
-            // facing 0=+Z hinge, 1=+X hinge, 2=-Z hinge, 3=-X hinge
-            if (f === 0) {
-                // Hinge on -X edge, panel swings along +X axis
-                mesh.position.set(x, y, z);
-                mesh.rotation.y = -Math.PI / 2;
-            } else if (f === 1) {
-                // Hinge on +Z edge, panel along +Z axis
-                mesh.position.set(x + 1, y, z);
-                mesh.rotation.y = 0;
-            } else if (f === 2) {
-                // Hinge on +X edge
-                mesh.position.set(x + 1, y, z + 1);
+            if (f === 0 || f === 2) {
+                // Closed door runs along X → open along Z
+                mesh.position.set(x + 0.04, y, z);
                 mesh.rotation.y = Math.PI / 2;
             } else {
-                // Hinge on -Z edge
-                mesh.position.set(x, y, z + 1);
-                mesh.rotation.y = Math.PI;
+                // Closed door runs along Z → open along X
+                mesh.position.set(x, y, z + 0.04);
+                mesh.rotation.y = 0;   // geo already runs along X from 0→0.95
             }
 
             scene.add(mesh);
             doorMeshes[k] = mesh;
-            clickables.push(mesh);   // ← make raycaster-hittable
+            clickables.push(mesh);
         }
 
         function toggleDoor(x, y, z) {
@@ -1665,20 +1656,25 @@
             return false;
         }
 
+        function isSolid(bx, by, bz) {
+            const b = getBlock(bx, by, bz);
+            if (b === 0 || b === 11 || b === 10) return false;           // air, water, torch
+            if (BLOCKS[b] && BLOCKS[b].isDoor) {
+                const dk = `${bx},${by},${bz}`;
+                if (blockStates[dk] && blockStates[dk].open) return false; // open door passable
+            }
+            return true;
+        }
+
         function checkCol(p) {
             const r = PLAYER_RADIUS;
-            for(let y = Math.floor(p.y - PLAYER_HEIGHT); y <= Math.floor(p.y + 0.1); y++) {
-                for(let x = Math.floor(p.x - r); x <= Math.floor(p.x + r); x++) {
-                    for(let z = Math.floor(p.z - r); z <= Math.floor(p.z + r); z++) {
-                        const b = getBlock(x, y, z);
-                        if(b !== 0 && b !== 11 && b !== 10) {
-                            // Open doors are passable
-                            if (BLOCKS[b] && BLOCKS[b].isDoor) {
-                                const dk = `${x},${y},${z}`;
-                                if (blockStates[dk] && blockStates[dk].open) continue;
-                            }
-                            return true;
-                        }
+            // Check bottom (feet) and top (head) voxel rows only
+            const yBottom = Math.floor(p.y - PLAYER_HEIGHT + 0.001);
+            const yTop    = Math.floor(p.y - 0.001);
+            for (let y = yBottom; y <= yTop; y++) {
+                for (let x = Math.floor(p.x - r + 0.001); x <= Math.floor(p.x + r - 0.001); x++) {
+                    for (let z = Math.floor(p.z - r + 0.001); z <= Math.floor(p.z + r - 0.001); z++) {
+                        if (isSolid(x, y, z)) return true;
                     }
                 }
             }
@@ -2129,17 +2125,52 @@
         function animate() {
             if(!running) return;
             requestAnimationFrame(animate);
+            // ── FPS cap for low-end devices ──
+            const _now = performance.now();
+            if (_isLowEnd && (_now - _lastFrameTime) < _TARGET_DT * 1000) return;
+            _lastFrameTime = _now;
             if(paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('shop-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex' || document.getElementById('chest-overlay').style.display === 'flex') { renderer.render(scene, camera); return; }
             const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
             if(mixer) mixer.update(dt);
             if(isFlying) { let flyVel = 0; if (keys[' '] || isTouchingUp) flyVel += 1; if (keys['shift'] || isTouchingDown) flyVel -= 1; vel.y = flyVel * 10; } else { vel.y -= 24 * dt; }
             const r = playerGroup.rotation.y, speed = isFlying ? 12 : 5.5; 
             let mx=0, mz=0; if(isTouch) { mx=joy.x; mz=joy.y; } else { if(keys.w)mz=-1; if(keys.s)mz=1; if(keys.a)mx=-1; if(keys.d)mx=1; }
-            const dx = (Math.sin(r)*mz + Math.cos(r)*mx) * speed, dz = (Math.cos(r)*mz - Math.sin(r)*mx) * speed;
-            const ox = playerGroup.position.x; playerGroup.position.x += dx*dt; if(checkCol(playerGroup.position)) playerGroup.position.x = ox;
-            const oz = playerGroup.position.z; playerGroup.position.z += dz*dt; if(checkCol(playerGroup.position)) playerGroup.position.z = oz;
-            playerGroup.position.y += vel.y*dt;
-            if(checkCol(playerGroup.position)) { if(vel.y < 0) { playerGroup.position.y = Math.ceil(playerGroup.position.y - PLAYER_HEIGHT) + PLAYER_HEIGHT; vel.y = 0; onGround = true; } else { playerGroup.position.y = Math.floor(playerGroup.position.y + 0.1) - 0.1; vel.y = 0; } } else onGround = false;
+            const dx = (Math.sin(r)*mz + Math.cos(r)*mx) * speed;
+            const dz = (Math.cos(r)*mz - Math.sin(r)*mx) * speed;
+
+            // ── Axis-separated collision with step-up ──
+            const pos = playerGroup.position;
+
+            // X axis
+            pos.x += dx * dt;
+            if (checkCol(pos)) {
+                pos.x -= dx * dt;  // revert
+                // try step-up (small ledge ≤ 0.5 block)
+                pos.y += 0.5; pos.x += dx * dt;
+                if (checkCol(pos)) { pos.x -= dx * dt; pos.y -= 0.5; } // no step, stay
+            }
+
+            // Z axis
+            pos.z += dz * dt;
+            if (checkCol(pos)) {
+                pos.z -= dz * dt;
+                pos.y += 0.5; pos.z += dz * dt;
+                if (checkCol(pos)) { pos.z -= dz * dt; pos.y -= 0.5; }
+            }
+
+            // Y axis
+            pos.y += vel.y * dt;
+            if (checkCol(pos)) {
+                if (vel.y < 0) {
+                    // Landing — snap feet to top of block below
+                    pos.y = Math.floor(pos.y - PLAYER_HEIGHT + 0.001) + 1 + PLAYER_HEIGHT;
+                    vel.y = 0; onGround = true;
+                } else {
+                    // Head hit — snap head to bottom of block above
+                    pos.y = Math.ceil(pos.y - 0.001) - 0.001;
+                    vel.y = 0;
+                }
+            } else { onGround = false; }
             
             // Animation Trigger
             if(mixer) { 
@@ -2149,18 +2180,64 @@
             }
             
             if(externalModel) externalModel.position.y = -PLAYER_HEIGHT;
-            gameTime += dt; const angle = ((gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS) * Math.PI * 2;
-            
-            sunLight.position.set(playerGroup.position.x + Math.sin(angle) * 60, playerGroup.position.y + Math.cos(angle) * 60, playerGroup.position.z + 20);
+            gameTime += dt;
+            const angle = ((gameTime % DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS) * Math.PI * 2;
+
+            sunLight.position.set(
+                playerGroup.position.x + Math.sin(angle) * 60,
+                playerGroup.position.y + Math.cos(angle) * 60,
+                playerGroup.position.z + 20
+            );
             sunLight.target.position.copy(playerGroup.position);
-            
-            // ── Performance: only update sky when angle changes meaningfully ──
-            if (Math.abs(angle - _lastSkyAngle) > 0.01) {
+
+            // ── Smooth 5-phase day/night cycle ──
+            // t=0: midnight, t=0.25: dawn, t=0.5: noon, t=0.75: dusk, t=1: midnight
+            if (Math.abs(angle - _lastSkyAngle) > 0.005) {
                 _lastSkyAngle = angle;
-                const isDay = Math.cos(angle) > 0;
-                const skyColor = isDay ? _skyDay : _skyNight;
-                scene.background = skyColor; scene.fog.color.copy(skyColor);
-                stars.material.opacity = isDay ? 0 : 1;
+                const t = (angle / (Math.PI * 2) + 1) % 1; // 0–1 over full day
+
+                // Sky colour keyframes: midnight, dawn, day, dusk, midnight
+                const skyKeys = [
+                    { t: 0.00, r: 0x0a/255, g: 0x0a/255, b: 0x1a/255 }, // midnight
+                    { t: 0.20, r: 0x1a/255, g: 0x0a/255, b: 0x2a/255 }, // pre-dawn
+                    { t: 0.27, r: 0xf0/255, g: 0x60/255, b: 0x20/255 }, // sunrise orange
+                    { t: 0.33, r: 0x87/255, g: 0xce/255, b: 0xeb/255 }, // morning blue
+                    { t: 0.50, r: 0x5b/255, g: 0xb8/255, b: 0xff/255 }, // noon
+                    { t: 0.67, r: 0x87/255, g: 0xce/255, b: 0xeb/255 }, // afternoon
+                    { t: 0.73, r: 0xf0/255, g: 0x50/255, b: 0x10/255 }, // sunset orange
+                    { t: 0.80, r: 0x1a/255, g: 0x0a/255, b: 0x2a/255 }, // post-dusk
+                    { t: 1.00, r: 0x0a/255, g: 0x0a/255, b: 0x1a/255 }, // midnight
+                ];
+                // Find surrounding keyframes and lerp
+                let k0 = skyKeys[0], k1 = skyKeys[skyKeys.length-1];
+                for (let i = 0; i < skyKeys.length - 1; i++) {
+                    if (t >= skyKeys[i].t && t <= skyKeys[i+1].t) { k0 = skyKeys[i]; k1 = skyKeys[i+1]; break; }
+                }
+                const span = k1.t - k0.t || 1;
+                const f = (t - k0.t) / span;
+                const sr = k0.r + (k1.r - k0.r) * f;
+                const sg = k0.g + (k1.g - k0.g) * f;
+                const sb = k0.b + (k1.b - k0.b) * f;
+                const skyCol = new THREE.Color(sr, sg, sb);
+                scene.background = skyCol;
+                scene.fog.color.copy(skyCol);
+
+                // Smooth sun intensity — 0 at night, full at noon
+                const sunT = Math.max(0, Math.cos(angle)); // 0 at night, 1 at noon
+                const dawnFactor = Math.max(0, Math.min(1, (t - 0.22) * 20, (0.78 - t) * 20));
+                sunLight.intensity  = 0.2 + sunT * 0.9;
+                ambientLight.intensity = 0.15 + dawnFactor * 0.5 + sunT * 0.3;
+
+                // Cloud tint: orange at dawn/dusk, white at day, dark at night
+                if (clouds) {
+                    const cBright = 0.3 + sunT * 0.7;
+                    const cOrange = Math.max(0, 1 - Math.abs(t - 0.27)*20, 1 - Math.abs(t - 0.73)*20);
+                    clouds.material.color.setRGB(
+                        Math.min(1, cBright + cOrange * 0.7),
+                        Math.min(1, cBright + cOrange * 0.2),
+                        cBright * (1 - cOrange * 0.5)
+                    );
+                }
             }
 
             // ── Performance: only run selection raycaster every 2 frames ──
@@ -2267,32 +2344,37 @@
             setMenuProgress(10, 'LOADING TEXTURES...');
             atlas = await createAtlas();
             setMenuProgress(30, 'BUILDING SCENE...');
-            scene = new THREE.Scene(); scene.fog = new THREE.Fog(0x87CEEB, 15, 45);
+            scene = new THREE.Scene();
+            const fogNear = _isLowEnd ? 10 : 15;
+            const fogFar  = _isLowEnd ? 28 : 45;
+            scene.fog = new THREE.Fog(0x5bb8ff, fogNear, fogFar);
+            scene.background = new THREE.Color(0x5bb8ff);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
 
             // ── Performance: limit pixel ratio, enable optimisations ──
-            renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
+            renderer = new THREE.WebGLRenderer({ antialias: !isTouch && !_isLowEnd, powerPreference: 'high-performance' });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, isTouch ? 1.5 : 2));
-            renderer.shadowMap.enabled = true;
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, _isLowEnd ? 1 : (isTouch ? 1.5 : 2)));
+            renderer.shadowMap.enabled = !_isLowEnd;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            renderer.sortObjects = false; // we handle transparency manually via alphaTest
+            renderer.sortObjects = false;
             document.body.appendChild(renderer.domElement);
             
             scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); 
             sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            sunLight.castShadow = true;
-            // ── Performance: halve shadow map on mobile ──
-            const shadowRes = isTouch ? 1024 : 2048;
-            sunLight.shadow.mapSize.width = shadowRes;
-            sunLight.shadow.mapSize.height = shadowRes;
-            const d = 40; 
-            sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
-            sunLight.shadow.camera.top = d;  sunLight.shadow.camera.bottom = -d;
-            sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 120;
-            sunLight.shadow.bias = -0.0005;
+            sunLight.castShadow = !_isLowEnd;
+            if (!_isLowEnd) {
+                const shadowRes = isTouch ? 512 : 1024;
+                sunLight.shadow.mapSize.width  = shadowRes;
+                sunLight.shadow.mapSize.height = shadowRes;
+                const d = 30;
+                sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
+                sunLight.shadow.camera.top  =  d; sunLight.shadow.camera.bottom = -d;
+                sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 100;
+                sunLight.shadow.bias = -0.0005;
+            }
             scene.add(sunLight); scene.add(sunLight.target); 
 
             raycaster = new THREE.Raycaster();
@@ -2329,8 +2411,6 @@
 
             setMenuProgress(70, 'CHECKING AUTH...');
             clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
-            const starGeo = new THREE.BufferGeometry(), starPos = []; for(let i=0; i<1500; i++) starPos.push((Math.random()-0.5)*100, Math.random()*50+10, (Math.random()-0.5)*100);
-            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0 })); scene.add(stars); 
             setupInput(); updateUI();
 
             document.getElementById('start-btn').onclick = async () => {
