@@ -1145,17 +1145,7 @@
 
                     group.remove(placeholder);
                     model = gltf.scene;
-                    
-                    if (skinData.scale) {
-                        model.scale.set(skinData.scale, skinData.scale, skinData.scale);
-                    } else {
-                        const bbox = new THREE.Box3().setFromObject(model);
-                        const size = new THREE.Vector3();
-                        bbox.getSize(size);
-                        const h = size.y;
-                        if (h > 0) { model.scale.set(2.0 / h, 2.0 / h, 2.0 / h); }
-                        else { model.scale.set(0.4, 0.4, 0.4); }
-                    }
+                    scaleModelTo2Blocks(model);
                     
                     model.position.y = -PLAYER_HEIGHT;
                     model.rotation.y = 0; // group.rotation.y handles world-space facing
@@ -1291,6 +1281,39 @@
                     text: data.text,
                     timestamp: serverTimestamp()
                 });
+            }
+        }
+
+        // Reliably scale a GLTF model so it is exactly 2 blocks tall.
+        // Box3.setFromObject fails on SkinnedMesh in r128 — traverse geometry directly.
+        function scaleModelTo2Blocks(model) {
+            model.scale.set(1, 1, 1);        // reset first
+            model.updateMatrixWorld(true);
+
+            const box = new THREE.Box3();
+            model.traverse(child => {
+                if (child.isMesh && child.geometry) {
+                    child.geometry.computeBoundingBox();
+                    const gb = child.geometry.boundingBox;
+                    if (gb) {
+                        // Transform geo bbox into model-root space
+                        const worldBox = gb.clone().applyMatrix4(child.matrixWorld);
+                        box.union(worldBox);
+                    }
+                }
+            });
+
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const h = size.y;
+            // If still degenerate, guess from bounding sphere of whole model
+            if (h < 0.001) {
+                const sphere = new THREE.Sphere();
+                box.getBoundingSphere(sphere);
+                const r = sphere.radius;
+                model.scale.setScalar(r > 0.001 ? 1.0 / r : 0.5);
+            } else {
+                model.scale.setScalar(2.0 / h);
             }
         }
 
@@ -2152,23 +2175,7 @@
                 
                 loadGLBCached(s.file, (gltf) => {
                     externalModel = gltf.scene;
-                    
-                    // Fixed scaling logic here
-                    if (s.scale) {
-                        externalModel.scale.set(s.scale, s.scale, s.scale);
-                    } else {
-                        const bbox = new THREE.Box3().setFromObject(externalModel);
-                        const size = new THREE.Vector3();
-                        bbox.getSize(size);
-                        const h = size.y;
-                        const targetH = 2.0; 
-                        if (h > 0) {
-                            const scale = targetH / h;
-                            externalModel.scale.set(scale, scale, scale);
-                        } else {
-                            externalModel.scale.set(0.4, 0.4, 0.4);
-                        }
-                    }
+                    scaleModelTo2Blocks(externalModel);
                     
                     externalModel.rotation.y = Math.PI; 
                     externalModel.position.y = -PLAYER_HEIGHT; // Fix height
@@ -2403,21 +2410,7 @@
                     loadGLBCached(s.file, (gltf) => {
                         if (externalModel) playerGroup.remove(externalModel);
                         externalModel = gltf.scene;
-                        if (s.scale) {
-                            externalModel.scale.set(s.scale, s.scale, s.scale);
-                        } else {
-                            const bbox = new THREE.Box3().setFromObject(externalModel);
-                            const size = new THREE.Vector3();
-                            bbox.getSize(size);
-                            const h = size.y;
-                            const targetH = 2.0; 
-                            if (h > 0) {
-                                const scale = (targetH / h);
-                                externalModel.scale.set(scale, scale, scale);
-                            } else {
-                                externalModel.scale.set(0.4, 0.4, 0.4);
-                            }
-                        }
+                        scaleModelTo2Blocks(externalModel);
                         externalModel.rotation.y = Math.PI; 
                         externalModel.position.y = -PLAYER_HEIGHT; 
                         externalModel.traverse(n => { 
