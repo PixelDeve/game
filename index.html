@@ -365,6 +365,69 @@
         const db = getFirestore(app);
         const APP_ID = 'pixelbox_v1'; 
 
+        // ══════════════════════════════════════
+        //  ASSET CACHE  (Cache API + IndexedDB)
+        // ══════════════════════════════════════
+        const ASSET_CACHE   = 'voxelpocket-assets-v1';
+        const ATLAS_IDB_KEY = 'atlas-v3';   // bump this whenever block textures change
+
+        // Generic fetch-with-cache — stores Response in Cache API
+        async function cachedFetch(url) {
+            try {
+                const cache = await caches.open(ASSET_CACHE);
+                const hit   = await cache.match(url);
+                if (hit) return hit.clone();
+                const res = await fetch(url);
+                if (res && res.ok) cache.put(url, res.clone());
+                return res;
+            } catch(e) {
+                return fetch(url);   // fallback if Cache API unavailable
+            }
+        }
+
+        // Load GLB via cache, parse from ArrayBuffer (avoids double-fetch)
+        async function loadGLBCached(url, onLoad, onError) {
+            try {
+                const res = await cachedFetch(url);
+                const buf = await res.arrayBuffer();
+                new THREE.GLTFLoader().parse(buf, '', onLoad, onError || console.error);
+            } catch(e) {
+                console.warn('GLB cache miss, falling back:', url, e);
+                new THREE.GLTFLoader().load(url, onLoad, undefined, onError || console.error);
+            }
+        }
+
+        // IndexedDB helpers for the atlas canvas
+        function _idbOpen() {
+            return new Promise((res, rej) => {
+                const req = indexedDB.open('VoxelPocket', 1);
+                req.onupgradeneeded = e => e.target.result.createObjectStore('cache');
+                req.onsuccess  = e  => res(e.target.result);
+                req.onerror    = rej;
+            });
+        }
+        async function atlasFromIDB() {
+            try {
+                const db  = await _idbOpen();
+                return await new Promise((res, rej) => {
+                    const tx  = db.transaction('cache', 'readonly');
+                    const req = tx.objectStore('cache').get(ATLAS_IDB_KEY);
+                    req.onsuccess = () => res(req.result || null);
+                    req.onerror   = () => res(null);
+                });
+            } catch(e) { return null; }
+        }
+        async function saveAtlasToIDB(dataURL) {
+            try {
+                const db = await _idbOpen();
+                await new Promise((res, rej) => {
+                    const tx  = db.transaction('cache', 'readwrite');
+                    tx.objectStore('cache').put(dataURL, ATLAS_IDB_KEY);
+                    tx.oncomplete = res; tx.onerror = rej;
+                });
+            } catch(e) { /* silently ignore */ }
+        }
+
         const CHUNK_SIZE = 16;
         const PLAYER_HEIGHT = 1.62;
         const PLAYER_RADIUS = 0.3;
@@ -397,13 +460,9 @@
         };
 
         const SKINS = {
-            'default': { name: 'Robot', price: 0, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb' },
-            'blue': { name: 'Blue Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0x0000ff },
-            'red': { name: 'Red Bot', price: 200, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xff0000 },
-            'gold': { name: 'Gold Bot', price: 1000, file: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', color: 0xFFD700 },
-            'skin1': { name: 'Knight', price: 500, file: 'models/model1.glb', scale: 1.0 },
-            'skin2': { name: 'Astronaut', price: 750, file: 'models/model2.glb', scale: 1.0 },
-            'skin3': { name: 'Viking', price: 1000, file: 'models/model3.glb', scale: 1.0 }
+            'default': { name: 'Knight', price: 0,    file: './models/model1.glb', scale: 1.0 },
+            'skin2':   { name: 'Astronaut', price: 750,  file: './models/model2.glb', scale: 1.0 },
+            'skin3':   { name: 'Viking',    price: 1000, file: './models/model3.glb', scale: 1.0 }
         };
 
         const BLOCKS = {
@@ -1042,12 +1101,10 @@
                 group.add(placeholder);
 
                 let url = skinData.file;
-                // Ensure default fallback URL is absolute
-                if (remoteSkinId === 'default' && !url.startsWith('http')) {
-                     url = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
-                }
+                // Ensure default skin URL is relative and correct
+                if (!url || url.trim() === '') url = './models/model1.glb';
 
-                new THREE.GLTFLoader().load(url, (gltf) => {
+                loadGLBCached(url, (gltf) => {
                     // Player may have left before model loaded
                     if (!otherPlayers[pid]) return;
 
@@ -1097,7 +1154,7 @@
                         otherPlayers[pid].model = model;
                         otherPlayers[pid].currentAction = 'Idle';
                     }
-                }, undefined, (error) => {
+                }, (error) => {
                     console.error("Failed to load model for player " + pid, error);
                 });
             } else {
@@ -1243,6 +1300,31 @@
         }
 
         async function createAtlas() {
+            // ── Try loading the pre-built atlas from IndexedDB ──
+            const cached = await atlasFromIDB();
+            if (cached) {
+                return new Promise(resolve => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width; canvas.height = img.height;
+                        canvas.getContext('2d').drawImage(img, 0, 0);
+                        // Re-derive tile mapping from block definitions
+                        const S = 32;
+                        ATLAS_COLS = Math.round(img.width / S);
+                        ATLAS_ROWS = Math.round(img.height / S);
+                        const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
+                        const fileToId = {};
+                        uniqueFiles.forEach((f, i) => fileToId[f] = i);
+                        Object.values(BLOCKS).forEach(b => { if(b.files) b.tiles = b.files.map(f => fileToId[f]); });
+                        const tex = new THREE.CanvasTexture(canvas);
+                        tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+                        tex.image = canvas;
+                        resolve(tex);
+                    };
+                    img.src = cached;
+                });
+            }
             const S = 32; 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -1314,6 +1396,7 @@
                     }
                     const img = new Image();
                     img.crossOrigin = "Anonymous";
+                    const assetURL = new URL(`./assets/${file}`, window.location.href).href;
                     img.onload = () => {
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
@@ -1323,13 +1406,14 @@
                     img.onerror = () => {
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
-                        ctx.fillStyle = '#FFFFFF';
-                        ctx.fillRect(tx, ty, S, S);
-                        ctx.fillStyle = '#FF00FF'; 
-                        ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
+                        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#FF00FF'; ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
                         resolve();
                     };
-                    img.src = new URL(`./assets/${file}`, window.location.href).href;
+                    // Use cachedFetch → blob URL so the image comes from cache second time
+                    cachedFetch(assetURL).then(res => res.blob()).then(blob => {
+                        img.src = URL.createObjectURL(blob);
+                    }).catch(() => { img.src = assetURL; });
                 });
             };
 
@@ -1347,6 +1431,9 @@
             const tex = new THREE.CanvasTexture(canvas);
             tex.magFilter = THREE.NearestFilter;
             tex.minFilter = THREE.NearestFilter;
+            tex.image = canvas;
+            // ── Save built atlas to IndexedDB for next session ──
+            try { saveAtlasToIDB(canvas.toDataURL('image/png')); } catch(e) {}
             return tex;
         }
 
@@ -2018,7 +2105,7 @@
                 // Remove current local model
                 playerGroup.remove(externalModel);
                 
-                new THREE.GLTFLoader().load(s.file, (gltf) => {
+                loadGLBCached(s.file, (gltf) => {
                     externalModel = gltf.scene;
                     
                     // Fixed scaling logic here
@@ -2068,7 +2155,7 @@
                     if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
                     updatePOV();
                     alert("Skin " + s.name + " Equipped!");
-                }, undefined, (err) => {
+                }, (err) => {
                     console.error("Failed to load local skin: ", err);
                     alert("Failed to load model file. Check 'models' folder.");
                 });
@@ -2268,7 +2355,7 @@
             if(currentSkin && SKINS[currentSkin]) {
                  const s = SKINS[currentSkin];
                  await new Promise((resolve) => {
-                    new THREE.GLTFLoader().load(s.file, (gltf) => {
+                    loadGLBCached(s.file, (gltf) => {
                         if (externalModel) playerGroup.remove(externalModel);
                         externalModel = gltf.scene;
                         if (s.scale) {
@@ -2313,7 +2400,7 @@
                         if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
                         updatePOV();
                         resolve();
-                     }, undefined, (err) => {
+                     }, (err) => {
                          console.error("Local player model load failed", err);
                          resolve();
                      });
@@ -2382,29 +2469,35 @@
             scene.add(selectionBox); 
             
             setMenuProgress(50, 'LOADING PLAYER MODEL...');
-            // Initial loader for the default robot
             await new Promise((resolve) => {
-                new THREE.GLTFLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
+                loadGLBCached('./models/model1.glb', (gltf) => {
                     externalModel = gltf.scene; 
                     externalModel.animations = gltf.animations;
                     const bbox = new THREE.Box3().setFromObject(externalModel);
                     const size = new THREE.Vector3(); bbox.getSize(size);
                     const h = size.y;
                     if (h > 0) { const s = 2.0 / h; externalModel.scale.set(s, s, s); }
-                    else { externalModel.scale.set(0.4, 0.4, 0.4); }
+                    else { externalModel.scale.set(1.0, 1.0, 1.0); }
                     externalModel.rotation.y = Math.PI; 
                     externalModel.position.y = -PLAYER_HEIGHT;
                     externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
                     playerGroup.add(externalModel);
                     modelLoaded = true;
-                    mixer = new THREE.AnimationMixer(externalModel); 
-                    gltf.animations.forEach((clip) => { actions[clip.name] = mixer.clipAction(clip); });
+                    mixer = new THREE.AnimationMixer(externalModel);
+                    gltf.animations.forEach((clip) => {
+                        let n = clip.name;
+                        if (n.toLowerCase().includes('idle')) n = 'Idle';
+                        else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
+                        actions[n] = mixer.clipAction(clip);
+                    });
                     if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
                     resolve();
-                }, undefined, () => {
-                    externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x00ff00})); 
+                }, () => {
+                    // Fallback box if model1.glb missing
+                    externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x4488ff})); 
                     externalModel.castShadow = true; externalModel.receiveShadow = true;
                     playerGroup.add(externalModel);
+                    modelLoaded = true;
                     resolve();
                 });
             });
