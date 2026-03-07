@@ -1302,22 +1302,33 @@
         }
 
         // Scale a GLTF model to exactly 2 blocks tall.
-        // MUST be called AFTER model is added to its parent (playerGroup/group) so
-        // scene.updateMatrixWorld() gives correct child matrixWorld values.
-        // Box3.setFromObject only works reliably once the object is in the scene graph.
+        // Reads raw vertex positions directly — works correctly for SkinnedMesh
+        // where Box3.setFromObject returns empty bounds in bind pose (Three.js r128 bug).
         function scaleModelTo2Blocks(model) {
             model.scale.set(1, 1, 1);
-            if (scene) scene.updateMatrixWorld(true);
-            else model.updateMatrixWorld(true);
-            const box = new THREE.Box3().setFromObject(model);
-            const h = box.max.y - box.min.y;
-            if (h > 0.001) {
-                model.scale.setScalar(2.0 / h);
-            } else {
-                const sphere = new THREE.Sphere();
-                box.getBoundingSphere(sphere);
-                model.scale.setScalar(sphere.radius > 0.001 ? 1.0 / sphere.radius : 0.5);
-            }
+            model.position.set(model.position.x, 0, model.position.z); // measure from y=0 temporarily
+            model.updateMatrixWorld(true);
+
+            let minY = Infinity, maxY = -Infinity;
+            model.traverse(child => {
+                if (!child.isMesh && !child.isSkinnedMesh) return;
+                const pos = child.geometry && child.geometry.attributes && child.geometry.attributes.position;
+                if (!pos) return;
+                child.updateMatrixWorld(true);
+                const mat = child.matrixWorld;
+                const arr = pos.array;
+                for (let i = 1; i < arr.length; i += 3) {
+                    // Transform Y through world matrix: y' = m[1]*x + m[5]*y + m[9]*z + m[13]
+                    const x = arr[i-1], y = arr[i], z = arr[i+1];
+                    const wy = mat.elements[1]*x + mat.elements[5]*y + mat.elements[9]*z + mat.elements[13];
+                    if (wy < minY) minY = wy;
+                    if (wy > maxY) maxY = wy;
+                }
+            });
+
+            const h = (isFinite(maxY) && isFinite(minY)) ? (maxY - minY) : 0;
+            model.position.y = -PLAYER_HEIGHT; // restore intended offset
+            model.scale.setScalar(h > 0.001 ? 2.0 / h : 0.5);
         }
 
         function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
