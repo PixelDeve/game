@@ -385,16 +385,51 @@
             }
         }
 
-        // Load GLB via cache, parse from ArrayBuffer (avoids double-fetch)
-        async function loadGLBCached(url, onLoad, onError) {
-            try {
-                const res = await cachedFetch(url);
-                const buf = await res.arrayBuffer();
-                new THREE.GLTFLoader().parse(buf, '', onLoad, onError || console.error);
-            } catch(e) {
-                console.warn('GLB cache miss, falling back:', url, e);
-                new THREE.GLTFLoader().load(url, onLoad, undefined, onError || console.error);
-            }
+        // Load GLB via cache — bulletproof, always calls onLoad or onError, 12s max
+        function loadGLBCached(url, onLoad, onError) {
+            const _err = typeof onError === 'function' ? onError : (e) => console.warn('GLB load error:', e);
+            let settled = false;
+            function _done(fn, arg) { if (settled) return; settled = true; fn(arg); }
+
+            const timer = setTimeout(() => {
+                _done(_err, new Error('GLB load timeout: ' + url));
+            }, 6000);
+
+            (async () => {
+                try {
+                    const res = await cachedFetch(url);
+                    if (!res || !res.ok) {
+                        clearTimeout(timer);
+                        _done(_err, new Error('HTTP ' + (res ? res.status : 0) + ' loading ' + url));
+                        return;
+                    }
+                    const buf = await res.arrayBuffer();
+                    const view = new DataView(buf);
+                    const magic = buf.byteLength >= 4 ? view.getUint32(0, true) : 0;
+                    const firstByte = buf.byteLength >= 1 ? view.getUint8(0) : 0;
+                    if (magic !== 0x46546C67 && firstByte !== 0x7B) {
+                        clearTimeout(timer);
+                        _done(_err, new Error('Not a valid GLB/GLTF: ' + url));
+                        return;
+                    }
+                    new THREE.GLTFLoader().parse(buf, '', (gltf) => {
+                        clearTimeout(timer);
+                        _done(onLoad, gltf);
+                    }, (e) => {
+                        clearTimeout(timer);
+                        _done(_err, e);
+                    });
+                } catch(e) {
+                    clearTimeout(timer);
+                    try {
+                        new THREE.GLTFLoader().load(url,
+                            (gltf) => { clearTimeout(timer); _done(onLoad, gltf); },
+                            undefined,
+                            (e2) => { clearTimeout(timer); _done(_err, e2); }
+                        );
+                    } catch(e3) { _done(_err, e3); }
+                }
+            })();
         }
 
         // IndexedDB helpers for the atlas canvas
@@ -1278,13 +1313,17 @@
         async function loadGame() {
             const localData = localStorage.getItem('voxel_prefs_client');
             if(localData) {
-                const parsed = JSON.parse(localData);
-                povMode = parsed.povMode ?? 0;
+                try {
+                    const parsed = JSON.parse(localData);
+                    povMode = parsed.povMode ?? 0;
+                } catch(e) {}
             }
             if(currentUser && userId) {
                 const userRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'user_stats', userId);
                 try {
-                    const snap = await getDoc(userRef);
+                    // Race Firestore against a 6s timeout so we never hang here
+                    const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error('loadGame timeout')), 6000));
+                    const snap = await Promise.race([getDoc(userRef), timeoutP]);
                     if(snap.exists()) {
                         const saved = snap.data();
                         inventory = saved.inventory || inventory;
@@ -1293,7 +1332,7 @@
                         ownedSkins = saved.ownedSkins || ['default'];
                         activeTool = saved.activeTool || null;
                     }
-                } catch(e) { console.error(e); }
+                } catch(e) { console.warn('loadGame skipped:', e.message); }
             }
             updateHotbarFromInventory();
             updateCoinDisplay();
@@ -1303,27 +1342,33 @@
             // ── Try loading the pre-built atlas from IndexedDB ──
             const cached = await atlasFromIDB();
             if (cached) {
-                return new Promise(resolve => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.width; canvas.height = img.height;
-                        canvas.getContext('2d').drawImage(img, 0, 0);
-                        // Re-derive tile mapping from block definitions
-                        const S = 32;
-                        ATLAS_COLS = Math.round(img.width / S);
-                        ATLAS_ROWS = Math.round(img.height / S);
-                        const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
-                        const fileToId = {};
-                        uniqueFiles.forEach((f, i) => fileToId[f] = i);
-                        Object.values(BLOCKS).forEach(b => { if(b.files) b.tiles = b.files.map(f => fileToId[f]); });
-                        const tex = new THREE.CanvasTexture(canvas);
-                        tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
-                        tex.image = canvas;
-                        resolve(tex);
-                    };
-                    img.src = cached;
-                });
+                try {
+                    const tex = await new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.width; canvas.height = img.height;
+                            canvas.getContext('2d').drawImage(img, 0, 0);
+                            const S = 32;
+                            ATLAS_COLS = Math.round(img.width / S);
+                            ATLAS_ROWS = Math.round(img.height / S);
+                            const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
+                            const fileToId = {};
+                            uniqueFiles.forEach((f, i) => fileToId[f] = i);
+                            Object.values(BLOCKS).forEach(b => { if(b.files) b.tiles = b.files.map(f => fileToId[f]); });
+                            const tex = new THREE.CanvasTexture(canvas);
+                            tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+                            tex.image = canvas;
+                            resolve(tex);
+                        };
+                        img.onerror = () => reject(new Error('Cached atlas corrupt'));
+                        img.src = cached;
+                    });
+                    return tex;
+                } catch(e) {
+                    console.warn('Atlas IDB cache invalid, rebuilding:', e);
+                    // fall through to full rebuild below
+                }
             }
             const S = 32; 
             const canvas = document.createElement('canvas');
@@ -2468,39 +2513,17 @@
             selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
             scene.add(selectionBox); 
             
-            setMenuProgress(50, 'LOADING PLAYER MODEL...');
-            await new Promise((resolve) => {
-                loadGLBCached('./models/model1.glb', (gltf) => {
-                    externalModel = gltf.scene; 
-                    externalModel.animations = gltf.animations;
-                    const bbox = new THREE.Box3().setFromObject(externalModel);
-                    const size = new THREE.Vector3(); bbox.getSize(size);
-                    const h = size.y;
-                    if (h > 0) { const s = 2.0 / h; externalModel.scale.set(s, s, s); }
-                    else { externalModel.scale.set(1.0, 1.0, 1.0); }
-                    externalModel.rotation.y = Math.PI; 
-                    externalModel.position.y = -PLAYER_HEIGHT;
-                    externalModel.traverse(n => { if(n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); 
-                    playerGroup.add(externalModel);
-                    modelLoaded = true;
-                    mixer = new THREE.AnimationMixer(externalModel);
-                    gltf.animations.forEach((clip) => {
-                        let n = clip.name;
-                        if (n.toLowerCase().includes('idle')) n = 'Idle';
-                        else if (n.toLowerCase().includes('walk') && !n.toLowerCase().includes('jump')) n = 'Walking';
-                        actions[n] = mixer.clipAction(clip);
-                    });
-                    if(actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
-                    resolve();
-                }, () => {
-                    // Fallback box if model1.glb missing
-                    externalModel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), new THREE.MeshLambertMaterial({color: 0x4488ff})); 
-                    externalModel.castShadow = true; externalModel.receiveShadow = true;
-                    playerGroup.add(externalModel);
-                    modelLoaded = true;
-                    resolve();
-                });
-            });
+            setMenuProgress(50, 'BUILDING WORLD...');
+            // Use a simple box as placeholder — the real skin is loaded in startGame().
+            // This removes the biggest loading bottleneck (waiting for model1.glb).
+            externalModel = new THREE.Mesh(
+                new THREE.BoxGeometry(0.5, 1.6, 0.5),
+                new THREE.MeshLambertMaterial({ color: 0x4488ff })
+            );
+            externalModel.position.y = -PLAYER_HEIGHT;
+            externalModel.castShadow = true;
+            playerGroup.add(externalModel);
+            modelLoaded = true;
 
             setMenuProgress(70, 'CHECKING AUTH...');
             clouds = new THREE.Mesh(new THREE.BoxGeometry(100, 2, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })); clouds.position.y = 45; scene.add(clouds);
@@ -2513,8 +2536,15 @@
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
 
             setMenuProgress(90, 'CHECKING AUTH...');
+            // Safety timeout: if Firebase doesn't respond in 5s, show sign-in anyway
+            const authTimeout = setTimeout(() => {
+                setMenuProgress(100, 'SIGN IN TO PLAY');
+                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
+                document.getElementById('start-btn').style.display = 'block';
+            }, 5000);
             setPersistence(auth, browserLocalPersistence).then(() => {
                 onAuthStateChanged(auth, (user) => {
+                    clearTimeout(authTimeout);
                     setMenuProgress(100, 'READY!');
                     if (user) {
                         startGame(user);
@@ -2523,6 +2553,10 @@
                         document.getElementById('start-btn').style.display = 'block';
                     }
                 });
+            }).catch(() => {
+                clearTimeout(authTimeout);
+                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
+                document.getElementById('start-btn').style.display = 'block';
             });
         }
         let last = performance.now(); init();
