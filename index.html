@@ -1068,6 +1068,24 @@
                     deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId));
                 }
             });
+
+            // Shared day/night clock: all clients sync to one server epoch
+            const epochRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'world_clock', 'epoch');
+            function syncEpoch() {
+                getDoc(epochRef).then(snap => {
+                    if (snap.exists() && snap.data().epochMs) {
+                        // Set gameTime so it matches where the server clock is right now
+                        gameTime = ((Date.now() - snap.data().epochMs) / 1000) % DAY_LENGTH_SECONDS;
+                    } else {
+                        // First ever player — write the shared epoch
+                        setDoc(epochRef, { epochMs: Date.now() });
+                    }
+                }).catch(() => {});
+            }
+            syncEpoch();
+            // Re-sync every 5 minutes to prevent drift
+            setInterval(syncEpoch, 5 * 60 * 1000);
+
             initChestNetwork();
         }
 
@@ -1145,10 +1163,8 @@
 
                     group.remove(placeholder);
                     model = gltf.scene;
-                    scaleModelTo2Blocks(model);
-                    
                     model.position.y = -PLAYER_HEIGHT;
-                    model.rotation.y = 0; // group.rotation.y handles world-space facing
+                    model.rotation.y = 0;
                     model.traverse(n => { 
                         if(n.isMesh) { 
                             n.castShadow = true; n.receiveShadow = true; 
@@ -1159,6 +1175,7 @@
                         } 
                     });
                     group.add(model);
+                    scaleModelTo2Blocks(model); // measure AFTER add to scene
                     pMixer = new THREE.AnimationMixer(model);
                     
                     gltf.animations.forEach(clip => { 
@@ -1284,36 +1301,22 @@
             }
         }
 
-        // Reliably scale a GLTF model so it is exactly 2 blocks tall.
-        // Box3.setFromObject fails on SkinnedMesh in r128 — traverse geometry directly.
+        // Scale a GLTF model to exactly 2 blocks tall.
+        // MUST be called AFTER model is added to its parent (playerGroup/group) so
+        // scene.updateMatrixWorld() gives correct child matrixWorld values.
+        // Box3.setFromObject only works reliably once the object is in the scene graph.
         function scaleModelTo2Blocks(model) {
-            model.scale.set(1, 1, 1);        // reset first
-            model.updateMatrixWorld(true);
-
-            const box = new THREE.Box3();
-            model.traverse(child => {
-                if (child.isMesh && child.geometry) {
-                    child.geometry.computeBoundingBox();
-                    const gb = child.geometry.boundingBox;
-                    if (gb) {
-                        // Transform geo bbox into model-root space
-                        const worldBox = gb.clone().applyMatrix4(child.matrixWorld);
-                        box.union(worldBox);
-                    }
-                }
-            });
-
-            const size = new THREE.Vector3();
-            box.getSize(size);
-            const h = size.y;
-            // If still degenerate, guess from bounding sphere of whole model
-            if (h < 0.001) {
+            model.scale.set(1, 1, 1);
+            if (scene) scene.updateMatrixWorld(true);
+            else model.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(model);
+            const h = box.max.y - box.min.y;
+            if (h > 0.001) {
+                model.scale.setScalar(2.0 / h);
+            } else {
                 const sphere = new THREE.Sphere();
                 box.getBoundingSphere(sphere);
-                const r = sphere.radius;
-                model.scale.setScalar(r > 0.001 ? 1.0 / r : 0.5);
-            } else {
-                model.scale.setScalar(2.0 / h);
+                model.scale.setScalar(sphere.radius > 0.001 ? 1.0 / sphere.radius : 0.5);
             }
         }
 
@@ -2175,10 +2178,8 @@
                 
                 loadGLBCached(s.file, (gltf) => {
                     externalModel = gltf.scene;
-                    scaleModelTo2Blocks(externalModel);
-                    
                     externalModel.rotation.y = Math.PI; 
-                    externalModel.position.y = -PLAYER_HEIGHT; // Fix height
+                    externalModel.position.y = -PLAYER_HEIGHT;
                     externalModel.traverse(n => { 
                         if(n.isMesh) { 
                             n.castShadow = true; n.receiveShadow = true; 
@@ -2189,6 +2190,7 @@
                         } 
                     }); 
                     playerGroup.add(externalModel);
+                    scaleModelTo2Blocks(externalModel); // measure AFTER add to scene
                     
                     mixer = new THREE.AnimationMixer(externalModel); 
                     actions = {};
@@ -2364,8 +2366,10 @@
                 // Smooth sun intensity — 0 at night, full at noon
                 const sunT = Math.max(0, Math.cos(angle)); // 0 at night, 1 at noon
                 const dawnFactor = Math.max(0, Math.min(1, (t - 0.22) * 20, (0.78 - t) * 20));
-                sunLight.intensity  = 0.2 + sunT * 0.9;
-                ambientLight.intensity = 0.15 + dawnFactor * 0.5 + sunT * 0.3;
+                sunLight.intensity  = sunT * 1.1;           // truly 0 at night
+                ambientLight.intensity = 0.08 + dawnFactor * 0.4 + sunT * 0.35;
+                // No shadows at night — saves GPU and looks correct
+                if (!_isLowEnd) sunLight.castShadow = sunT > 0.08;
 
                 // Cloud tint: orange at dawn/dusk, white at day, dark at night
                 if (clouds) {
@@ -2410,7 +2414,6 @@
                     loadGLBCached(s.file, (gltf) => {
                         if (externalModel) playerGroup.remove(externalModel);
                         externalModel = gltf.scene;
-                        scaleModelTo2Blocks(externalModel);
                         externalModel.rotation.y = Math.PI; 
                         externalModel.position.y = -PLAYER_HEIGHT; 
                         externalModel.traverse(n => { 
@@ -2423,6 +2426,7 @@
                             } 
                         }); 
                         playerGroup.add(externalModel);
+                        scaleModelTo2Blocks(externalModel); // measure AFTER add to scene
                         mixer = new THREE.AnimationMixer(externalModel); 
                         actions = {};
                         // Always store animations on the scene object so remote player clones can access them
