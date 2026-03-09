@@ -92,8 +92,9 @@
         #chat-input { flex-grow: 1; background: transparent; border: none; color: #fff; padding: 8px; font-family: 'Press Start 2P'; font-size: 7px; outline: none; width: 50%; }
         #chat-send-btn { background: #555; color: #fff; border: none; padding: 0 8px; cursor: pointer; font-family: 'Press Start 2P'; font-size: 7px; }
 
-        #inventory-overlay, #shop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; pointer-events: auto; }
-        #inventory-grid, #shop-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; background: #8B8B8B; padding: 15px; border: 4px solid #111; max-height: 70vh; overflow-y: auto; }
+        #inventory-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; pointer-events: auto; }
+        #inventory-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; background: #8B8B8B; padding: 15px; border: 4px solid #111; max-height: 70vh; overflow-y: auto; }
+        #shop-overlay { position: fixed; inset: 0; z-index: 2000; pointer-events: auto; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); }
         
         #pause-menu { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 3000; pointer-events: auto; }
         .menu-card { background: #8B8B8B; padding: 20px; border: 4px solid #000; display: flex; flex-direction: column; gap: 10px; width: 200px; }
@@ -186,16 +187,45 @@
         
         #del-mode-btn { background: #a33; margin-top: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; }
         
-        #shop-mode-btn { background: #2ecc71; margin-bottom: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; text-align: center; }
-        
-        .shop-item { width: 50px; height: 60px; background: #555; border: 2px solid #000; display: flex; flex-direction: column; align-items: center; justify-content: space-between; cursor: pointer; padding: 2px; }
-        .shop-item:hover { background: #666; }
-        .shop-price { font-size: 6px; color: #FFD700; margin-bottom: 2px; text-align: center; }
-        .shop-name { font-size: 5px; color: #fff; margin-top: 2px; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; }
-        .shop-tabs { display: flex; gap: 5px; margin-bottom: 10px; }
-        .shop-tab { padding: 8px; background: #555; color: white; border: 2px solid #000; font-size: 8px; cursor: pointer; }
-        .shop-tab.active { background: #DAA520; color: black; }
-        .shop-item canvas { image-rendering: pixelated; margin: 2px 0; }
+        /* ══ SHOP PANEL ══ */
+        #shop-panel {
+            position: relative; width: min(540px, 96vw);
+            background: linear-gradient(175deg, #1c1308 0%, #100b04 100%);
+            border: 2px solid #6b4410;
+            box-shadow: 0 0 0 1px #3a2200, 0 0 60px rgba(218,165,32,0.12), inset 0 1px 0 rgba(255,210,60,0.06);
+            border-radius: 4px; display: flex; flex-direction: column; max-height: 92vh;
+        }
+        #shop-header {
+            background: linear-gradient(90deg, #2a1600, #4a2c00 30%, #4a2c00 70%, #2a1600);
+            border-bottom: 2px solid #6b4410; border-radius: 2px 2px 0 0;
+            padding: 11px 18px; display: flex; align-items: center; justify-content: space-between;
+        }
+        #shop-title-wrap { display: flex; align-items: center; gap: 10px; }
+        #shop-icon { font-size: 18px; filter: drop-shadow(0 0 8px #DAA520); }
+        #shop-title-text { font-family:'Press Start 2P'; font-size:11px; color:#FFD700; text-shadow:0 0 14px #b8860b,2px 2px 0 #000; letter-spacing:2px; }
+        #shop-live-coins { font-family:'Press Start 2P'; font-size:7px; color:#FFD700; background:rgba(0,0,0,0.45); border:1px solid #4a2c00; border-radius:2px; padding:5px 10px; text-shadow:0 0 8px #DAA520; }
+        #shop-tab-bar { display:flex; padding:10px 14px 0; gap:2px; border-bottom:2px solid #2a1600; }
+        .shop-tab { font-family:'Press Start 2P'; font-size:7px; padding:7px 13px; cursor:pointer; color:#666; background:transparent; border:2px solid transparent; border-bottom:none; border-radius:3px 3px 0 0; letter-spacing:1px; transition:color .15s,background .15s; position:relative; top:2px; }
+        .shop-tab:hover { color:#bbb; background:rgba(255,255,255,0.03); }
+        .shop-tab.active { color:#FFD700; background:#140e05; border-color:#6b4410; border-bottom-color:#140e05; text-shadow:0 0 10px #DAA52066; }
+        #shop-mode-row { display:flex; align-items:center; gap:10px; padding:10px 16px 6px; }
+        #shop-mode-btn { font-family:'Press Start 2P'; font-size:7px; padding:6px 14px; cursor:pointer; border-radius:2px; letter-spacing:1px; border:2px solid; transition:all .15s; background:#2ecc71; color:#000; border-color:#2ecc71; }
+        #shop-mode-btn.sell-mode { background:#e74c3c; color:#fff; border-color:#e74c3c; }
+        #shop-hint { font-family:'Press Start 2P'; font-size:5px; color:#444; }
+        #shop-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; padding:8px 14px 12px; max-height:48vh; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#4a2c00 #0d0900; }
+        #shop-grid::-webkit-scrollbar { width:4px; }
+        #shop-grid::-webkit-scrollbar-track { background:#0d0900; }
+        #shop-grid::-webkit-scrollbar-thumb { background:#4a2c00; border-radius:2px; }
+        .shop-item { background:linear-gradient(160deg,#1e1610,#120d07); border:2px solid #2e1e08; border-radius:3px; cursor:pointer; display:flex; flex-direction:column; align-items:center; padding:8px 4px 6px; gap:4px; transition:all .15s; position:relative; overflow:hidden; min-height:72px; }
+        .shop-item::after { content:''; position:absolute; inset:0; background:linear-gradient(160deg,rgba(255,255,255,0.04) 0%,transparent 60%); pointer-events:none; }
+        .shop-item:hover { border-color:#DAA520; background:linear-gradient(160deg,#2a1e10,#1a1008); box-shadow:0 0 14px rgba(218,165,32,0.22),inset 0 0 8px rgba(218,165,32,0.04); transform:translateY(-1px); }
+        .shop-item:active { transform:translateY(1px); box-shadow:none; }
+        .shop-item canvas { image-rendering:pixelated; border:1px solid #2e1e08; border-radius:2px; }
+        .shop-name { font-family:'Press Start 2P'; font-size:5px; color:#ccc; text-align:center; width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.5; }
+        .shop-price { font-family:'Press Start 2P'; font-size:6px; color:#FFD700; text-shadow:0 0 6px #DAA52077; text-align:center; }
+        #shop-footer { display:flex; justify-content:center; padding:4px 0 0; border-top:1px solid #2a1600; margin-top:2px; }
+        #close-shop { font-family:'Press Start 2P'; font-size:8px; background:#140e05; border:2px solid #4a2c00; color:#666; padding:9px 28px; cursor:pointer; border-radius:2px; letter-spacing:2px; transition:all .15s; margin-top:12px; }
+        #close-shop:hover { border-color:#DAA520; color:#FFD700; background:#1e1408; box-shadow:0 0 12px rgba(218,165,32,0.18); }
 
         /* ── CHEST OVERLAY ── */
         #chest-overlay {
@@ -324,16 +354,28 @@
     </div>
 
     <div id="shop-overlay">
-        <div style="color: #DAA520; margin-bottom: 5px; font-size: 10px;">ITEM SHOP</div>
-        <div id="shop-mode-btn">MODE: BUY</div>
-        <div style="color: #888; margin-bottom: 10px; font-size: 6px;">L-CLICK: BUY | R-CLICK: SELL</div>
-        <div class="shop-tabs">
-            <div class="shop-tab active" data-tab="blocks" onclick="switchShopTab('blocks')">BLOCKS</div>
-            <div class="shop-tab" data-tab="tools" onclick="switchShopTab('tools')">TOOLS</div>
-            <div class="shop-tab" data-tab="skins" onclick="switchShopTab('skins')">SKINS</div>
+      <div id="shop-panel">
+        <div id="shop-header">
+          <div id="shop-title-wrap">
+            <span id="shop-icon">🏪</span>
+            <span id="shop-title-text">ITEM SHOP</span>
+          </div>
+          <div id="shop-live-coins">🪙 <span id="shop-coin-val">0</span></div>
+        </div>
+        <div id="shop-tab-bar">
+          <div class="shop-tab active" data-tab="blocks" onclick="switchShopTab('blocks')">⬛ BLOCKS</div>
+          <div class="shop-tab" data-tab="tools" onclick="switchShopTab('tools')">⛏ TOOLS</div>
+          <div class="shop-tab" data-tab="skins" onclick="switchShopTab('skins')">🧍 SKINS</div>
+        </div>
+        <div id="shop-mode-row">
+          <button id="shop-mode-btn">▶ BUY MODE</button>
+          <span id="shop-hint">TAP ITEM TO BUY / SELL</span>
         </div>
         <div id="shop-grid"></div>
-        <button id="close-shop" class="menu-btn" style="margin-top: 15px; width: 160px;">CLOSE</button>
+        <div id="shop-footer">
+          <button id="close-shop">✕ CLOSE</button>
+        </div>
+      </div>
     </div>
 
     <!-- CHEST OVERLAY -->    <div id="chest-overlay">
@@ -1949,8 +1991,8 @@
             document.getElementById('shop-mode-btn').onclick = () => { 
                 shopSellMode = !shopSellMode; 
                 const btn = document.getElementById('shop-mode-btn');
-                btn.innerText = `MODE: ${shopSellMode ? 'SELL' : 'BUY'}`;
-                btn.style.background = shopSellMode ? '#e74c3c' : '#2ecc71';
+                btn.innerText = shopSellMode ? '💰 SELL MODE' : '▶ BUY MODE';
+                btn.classList.toggle('sell-mode', shopSellMode);
             };
 
             const pBtn = document.getElementById('pause-btn'), camBtn = document.getElementById('cam-btn'), fsBtn = document.getElementById('fs-btn'), pMenu = document.getElementById('pause-menu');
@@ -2084,8 +2126,12 @@
             const overlay = document.getElementById('shop-overlay');
             const isOpening = overlay.style.display !== 'flex';
             overlay.style.display = isOpening ? 'flex' : 'none';
-            if(isOpening) switchShopTab('blocks');
-            if(isOpening && document.pointerLockElement) document.exitPointerLock();
+            if(isOpening) {
+                switchShopTab('blocks');
+                const cv = document.getElementById('shop-coin-val');
+                if(cv) cv.innerText = coins;
+                if(document.pointerLockElement) document.exitPointerLock();
+            }
         }
 
         window.switchShopTab = (tab) => {
@@ -2248,7 +2294,7 @@
             }
         }
 
-        function updateCoinDisplay() { document.getElementById('coin-display').innerText = `COINS: ${coins}`; }
+        function updateCoinDisplay() { document.getElementById('coin-display').innerText = `COINS: ${coins}`; const cv = document.getElementById('shop-coin-val'); if(cv) cv.innerText = coins; }
 
         function updateUI() {
             const slots = document.getElementById('hotbar-slots'); slots.innerHTML = '';
