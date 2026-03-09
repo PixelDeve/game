@@ -1585,22 +1585,32 @@
         // ── Terrain noise helper (fast, no deps) ──
         function _sn(ax, az, fr) { return Math.sin(ax*fr + az*fr*0.71)*0.5 + Math.cos(ax*fr*0.89 - az*fr*0.53)*0.5; }
 
+        // ── Memoised caches (plain objects, ~60 bytes each entry) ──
+        const _biomeCache = {};
+        const _terrHCache = {};
+
         // ── Biome: 0=desert 1=plains 2=forest 3=taiga 4=mountains ──
         function _biome(bx, bz) {
+            const k = bx + ',' + bz;
+            if (_biomeCache[k] !== undefined) return _biomeCache[k];
             const v = (_sn(bx/96, bz/96, 1.0) + _sn(bx/96, bz/96, 2.3)*0.5 + 1.5) / 3;
-            return v < 0.18 ? 0 : v < 0.40 ? 1 : v < 0.60 ? 2 : v < 0.78 ? 3 : 4;
+            return (_biomeCache[k] = v < 0.18 ? 0 : v < 0.40 ? 1 : v < 0.60 ? 2 : v < 0.78 ? 3 : 4);
         }
 
         // ── Terrain height at world (bx, bz) ──
         function _terrH(bx, bz) {
+            const k = bx + ',' + bz;
+            if (_terrHCache[k] !== undefined) return _terrHCache[k];
+            let h;
             switch(_biome(bx, bz)) {
-                case 0: return Math.max(2, Math.floor(11 + _sn(bx,bz,0.04)*2   + _sn(bx,bz,0.10)*1));   // desert
-                case 1: return Math.max(2, Math.floor(12 + _sn(bx,bz,0.03)*3   + _sn(bx,bz,0.08)*1.5)); // plains
-                case 2: return Math.max(2, Math.floor(13 + _sn(bx,bz,0.04)*5   + _sn(bx,bz,0.09)*2));   // forest
-                case 3: return Math.max(2, Math.floor(14 + _sn(bx,bz,0.035)*4  + _sn(bx,bz,0.10)*2));   // taiga
-                case 4: return Math.max(2, Math.floor(18 + _sn(bx,bz,0.05)*12  + _sn(bx,bz,0.10)*6 + _sn(bx,bz,0.02)*4)); // mountains
-                default: return 12;
+                case 0: h = Math.max(2, Math.floor(11 + _sn(bx,bz,0.04)*2   + _sn(bx,bz,0.10)*1));   break; // desert
+                case 1: h = Math.max(2, Math.floor(12 + _sn(bx,bz,0.03)*3   + _sn(bx,bz,0.08)*1.5)); break; // plains
+                case 2: h = Math.max(2, Math.floor(13 + _sn(bx,bz,0.04)*5   + _sn(bx,bz,0.09)*2));   break; // forest
+                case 3: h = Math.max(2, Math.floor(14 + _sn(bx,bz,0.035)*4  + _sn(bx,bz,0.10)*2));   break; // taiga
+                case 4: h = Math.max(2, Math.floor(18 + _sn(bx,bz,0.05)*12  + _sn(bx,bz,0.10)*6 + _sn(bx,bz,0.02)*4)); break; // mountains
+                default: h = 12;
             }
+            return (_terrHCache[k] = h);
         }
 
         function getBlock(x, y, z) {
@@ -1619,45 +1629,50 @@
                 if (cn < 0.055) return 0;
             }
 
-            // ── Trees & vegetation (scan neighbours) ──
-            for (let tx = -3; tx <= 3; tx++) {
-                for (let tz = -3; tz <= 3; tz++) {
-                    const wx = fx - tx, wz = fz - tz;
-                    const treeBiome = _biome(wx, wz);
+            // ── Trees & vegetation — only within possible tree Y range ──
+            // Max tree height = trunk(6) + canopy(2) = 8 above surface
+            // Min tree base = h (surface) + 1
+            // So skip entire scan if fy is below surface+1 or above surface+8
+            if (fy > h && fy <= h + 8) {
+                for (let tx = -3; tx <= 3; tx++) {
+                    for (let tz = -3; tz <= 3; tz++) {
+                        const wx = fx - tx, wz = fz - tz;
+                        const treeBiome = _biome(wx, wz);
 
-                    // Cactus – only check the exact column
-                    if (treeBiome === 0) {
-                        if (tx === 0 && tz === 0) {
-                            const thD = _terrH(wx, wz);
-                            if (fy > thD && fy <= thD + 2 && hash(wx * 7919, wz * 6271) % 180 === 0) return 46;
+                        // Cactus – only check the exact column
+                        if (treeBiome === 0) {
+                            if (tx === 0 && tz === 0) {
+                                const thD = _terrH(wx, wz);
+                                if (fy > thD && fy <= thD + 2 && hash(wx * 7919, wz * 6271) % 180 === 0) return 46;
+                            }
+                            continue;
                         }
-                        continue;
-                    }
 
-                    const treeChance = treeBiome === 2 ? 5 : treeBiome === 3 ? 7 : 2;
-                    if (hash(wx, wz) % 100 >= treeChance) continue;
+                        const treeChance = treeBiome === 2 ? 5 : treeBiome === 3 ? 7 : 2;
+                        if (hash(wx, wz) % 100 >= treeChance) continue;
 
-                    const th = _terrH(wx, wz);
-                    if (th < 7) continue; // no trees near water
+                        const th = _terrH(wx, wz);
+                        if (th < 7) continue; // no trees near water
 
-                    const tH = 4 + (hash(wx + 5, wz + 3) % 3); // trunk height 4–6
-                    const relX = fx - wx, relZ = fz - wz, relY = fy - th;
+                        const tH = 4 + (hash(wx + 5, wz + 3) % 3); // trunk height 4–6
+                        const relX = fx - wx, relZ = fz - wz, relY = fy - th;
 
-                    if (treeBiome === 3) {
-                        // Spruce – tall narrow
-                        if (relX === 0 && relZ === 0 && relY > 0 && relY <= tH + 1) return 25;
-                        if (relY >= 1 && relY <= tH + 2) {
-                            const maxSpread = Math.max(0, Math.floor((tH + 2 - relY) * 0.7));
-                            if (Math.abs(relX) <= maxSpread && Math.abs(relZ) <= maxSpread
-                                && !(relX === 0 && relZ === 0 && relY <= tH + 1)) return 5;
-                        }
-                    } else {
-                        // Oak – round canopy
-                        if (relX === 0 && relZ === 0 && relY > 0 && relY <= tH) return 4;
-                        if (relY >= tH - 2 && relY <= tH + 2) {
-                            const dist = Math.abs(relX) + Math.abs(relZ);
-                            const maxDist = (relY === tH + 2 || relY === tH - 2) ? 2 : 3;
-                            if (dist <= maxDist && !(relX === 0 && relZ === 0 && relY <= tH)) return 5;
+                        if (treeBiome === 3) {
+                            // Spruce – tall narrow
+                            if (relX === 0 && relZ === 0 && relY > 0 && relY <= tH + 1) return 25;
+                            if (relY >= 1 && relY <= tH + 2) {
+                                const maxSpread = Math.max(0, Math.floor((tH + 2 - relY) * 0.7));
+                                if (Math.abs(relX) <= maxSpread && Math.abs(relZ) <= maxSpread
+                                    && !(relX === 0 && relZ === 0 && relY <= tH + 1)) return 5;
+                            }
+                        } else {
+                            // Oak – round canopy
+                            if (relX === 0 && relZ === 0 && relY > 0 && relY <= tH) return 4;
+                            if (relY >= tH - 2 && relY <= tH + 2) {
+                                const dist = Math.abs(relX) + Math.abs(relZ);
+                                const maxDist = (relY === tH + 2 || relY === tH - 2) ? 2 : 3;
+                                if (dist <= maxDist && !(relX === 0 && relZ === 0 && relY <= tH)) return 5;
+                            }
                         }
                     }
                 }
