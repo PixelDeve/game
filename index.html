@@ -411,7 +411,7 @@
         //  ASSET CACHE  (Cache API + IndexedDB)
         // ══════════════════════════════════════
         const ASSET_CACHE   = 'voxelpocket-assets-v1';
-        const ATLAS_IDB_KEY = 'atlas-v3';   // bump this whenever block textures change
+        const ATLAS_IDB_KEY = 'atlas-v4-cartoon';   // bump this whenever block textures change
 
         // Generic fetch-with-cache — stores Response in Cache API
         async function cachedFetch(url) {
@@ -1545,7 +1545,11 @@
                     img.onload = () => {
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
+                        // Cartoon-style: vivid saturation + brightness boost
+                        ctx.save();
+                        ctx.filter = 'saturate(200%) brightness(115%) contrast(108%)';
                         ctx.drawImage(img, tx, ty, S, S);
+                        ctx.restore();
                         resolve();
                     };
                     img.onerror = () => {
@@ -1634,12 +1638,12 @@
                         const isTorch = BLOCKS[type].isTorch;
                         const isDoor  = BLOCKS[type].isDoor && (!blockStates[`${wx},${y},${wz}`] || !blockStates[`${wx},${y},${wz}`].open);
                         const faces = [
-                            { n:[1,0,0],  v:[1,0,0, 1,1,0, 1,1,1, 1,0,1], ao:0.8 },
-                            { n:[-1,0,0], v:[0,0,1, 0,1,1, 0,1,0, 0,0,0], ao:0.8 },
-                            { n:[0,1,0],  v:[0,1,1, 1,1,1, 1,1,0, 0,1,0], ao:1.0 },
-                            { n:[0,-1,0], v:[0,0,0, 1,0,0, 1,0,1, 0,0,1], ao:0.5 },
-                            { n:[0,0,1],  v:[1,0,1, 1,1,1, 0,1,1, 0,0,1], ao:0.9 },
-                            { n:[0,0,-1], v:[0,0,0, 0,1,0, 1,1,0, 1,0,0], ao:0.9 }
+                            { n:[1,0,0],  v:[1,0,0, 1,1,0, 1,1,1, 1,0,1], ao:0.72 },
+                            { n:[-1,0,0], v:[0,0,1, 0,1,1, 0,1,0, 0,0,0], ao:0.62 },
+                            { n:[0,1,0],  v:[0,1,1, 1,1,1, 1,1,0, 0,1,0], ao:1.0  },
+                            { n:[0,-1,0], v:[0,0,0, 1,0,0, 1,0,1, 0,0,1], ao:0.38 },
+                            { n:[0,0,1],  v:[1,0,1, 1,1,1, 0,1,1, 0,0,1], ao:0.82 },
+                            { n:[0,0,-1], v:[0,0,0, 0,1,0, 1,1,0, 1,0,0], ao:0.68 }
                         ];
                         faces.forEach((f, fi) => {
                             const nType = getBlock(wx+f.n[0], y+f.n[1], wz+f.n[2]);
@@ -2420,9 +2424,9 @@
                     { t: 0.00, r: 0x0a/255, g: 0x0a/255, b: 0x1a/255 }, // midnight
                     { t: 0.20, r: 0x1a/255, g: 0x0a/255, b: 0x2a/255 }, // pre-dawn
                     { t: 0.27, r: 0xf0/255, g: 0x60/255, b: 0x20/255 }, // sunrise orange
-                    { t: 0.33, r: 0x87/255, g: 0xce/255, b: 0xeb/255 }, // morning blue
-                    { t: 0.50, r: 0x5b/255, g: 0xb8/255, b: 0xff/255 }, // noon
-                    { t: 0.67, r: 0x87/255, g: 0xce/255, b: 0xeb/255 }, // afternoon
+                    { t: 0.33, r: 0x55/255, g: 0xc8/255, b: 0xff/255 }, // morning blue
+                    { t: 0.50, r: 0x38/255, g: 0xb6/255, b: 0xff/255 }, // noon
+                    { t: 0.67, r: 0x55/255, g: 0xc8/255, b: 0xff/255 }, // afternoon
                     { t: 0.73, r: 0xf0/255, g: 0x50/255, b: 0x10/255 }, // sunset orange
                     { t: 0.80, r: 0x1a/255, g: 0x0a/255, b: 0x2a/255 }, // post-dusk
                     { t: 1.00, r: 0x0a/255, g: 0x0a/255, b: 0x1a/255 }, // midnight
@@ -2554,8 +2558,8 @@
             scene = new THREE.Scene();
             const fogNear = _isLowEnd ? 10 : 15;
             const fogFar  = _isLowEnd ? 28 : 45;
-            scene.fog = new THREE.Fog(0x5bb8ff, fogNear, fogFar);
-            scene.background = new THREE.Color(0x5bb8ff);
+            scene.fog = new THREE.Fog(0x38b6ff, fogNear, fogFar);
+            scene.background = new THREE.Color(0x38b6ff);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
@@ -2567,10 +2571,11 @@
             renderer.shadowMap.enabled = !_isLowEnd;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             renderer.sortObjects = false;
+            renderer.domElement.style.cssText += '; filter: saturate(1.3) contrast(1.06);';
             document.body.appendChild(renderer.domElement);
             
-            scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); 
-            sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            scene.add(ambientLight = new THREE.AmbientLight(0xfff5e0, 0.75)); 
+            sunLight = new THREE.DirectionalLight(0xfffce8, 1.1);
             sunLight.castShadow = !_isLowEnd;
             if (!_isLowEnd) {
                 const shadowRes = isTouch ? 512 : 1024;
