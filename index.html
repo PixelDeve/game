@@ -1174,8 +1174,8 @@
                             }
                         } 
                     });
+                    scaleModelTo2Blocks(model);
                     group.add(model);
-                    scaleModelTo2Blocks(model); // measure AFTER add to scene
                     pMixer = new THREE.AnimationMixer(model);
                     
                     gltf.animations.forEach(clip => { 
@@ -1301,34 +1301,55 @@
             }
         }
 
-        // Scale a GLTF model to exactly 2 blocks tall.
-        // Reads raw vertex positions directly — works correctly for SkinnedMesh
-        // where Box3.setFromObject returns empty bounds in bind pose (Three.js r128 bug).
+        // Scale a GLTF model to exactly 2 blocks tall, 1 block wide.
+        // Measures raw vertex positions in model-root local space.
+        // Works for any GLB: SkinnedMesh, Z-up exports, any unit scale.
+        // Safe to call before OR after adding to scene — no parent needed.
         function scaleModelTo2Blocks(model) {
+            // Save caller's transform, reset to identity so measurement is in pure local space
+            const savedRotX = model.rotation.x, savedRotY = model.rotation.y, savedRotZ = model.rotation.z;
+            const savedPosY = model.position.y;
             model.scale.set(1, 1, 1);
-            model.position.set(model.position.x, 0, model.position.z); // measure from y=0 temporarily
+            model.rotation.set(0, 0, 0);
+            model.position.set(0, 0, 0);
             model.updateMatrixWorld(true);
 
+            let minX = Infinity, maxX = -Infinity;
             let minY = Infinity, maxY = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+            const _v = new THREE.Vector3();
+            const _m = new THREE.Matrix4();
+
             model.traverse(child => {
-                if (!child.isMesh && !child.isSkinnedMesh) return;
                 const pos = child.geometry && child.geometry.attributes && child.geometry.attributes.position;
                 if (!pos) return;
-                child.updateMatrixWorld(true);
-                const mat = child.matrixWorld;
+                // Build relative matrix from child up to (not including) model root
+                _m.identity();
+                let cur = child;
+                while (cur && cur !== model) {
+                    cur.updateMatrix();
+                    _m.premultiply(cur.matrix);
+                    cur = cur.parent;
+                }
                 const arr = pos.array;
-                for (let i = 1; i < arr.length; i += 3) {
-                    // Transform Y through world matrix: y' = m[1]*x + m[5]*y + m[9]*z + m[13]
-                    const x = arr[i-1], y = arr[i], z = arr[i+1];
-                    const wy = mat.elements[1]*x + mat.elements[5]*y + mat.elements[9]*z + mat.elements[13];
-                    if (wy < minY) minY = wy;
-                    if (wy > maxY) maxY = wy;
+                for (let i = 0; i < arr.length; i += 3) {
+                    _v.set(arr[i], arr[i+1], arr[i+2]).applyMatrix4(_m);
+                    if (_v.x < minX) minX = _v.x; if (_v.x > maxX) maxX = _v.x;
+                    if (_v.y < minY) minY = _v.y; if (_v.y > maxY) maxY = _v.y;
+                    if (_v.z < minZ) minZ = _v.z; if (_v.z > maxZ) maxZ = _v.z;
                 }
             });
 
-            const h = (isFinite(maxY) && isFinite(minY)) ? (maxY - minY) : 0;
-            model.position.y = -PLAYER_HEIGHT; // restore intended offset
-            model.scale.setScalar(h > 0.001 ? 2.0 / h : 0.5);
+            // Use the largest axis as the reference height (handles Z-up models etc.)
+            const sY = isFinite(maxY - minY) ? maxY - minY : 0;
+            const sX = isFinite(maxX - minX) ? maxX - minX : 0;
+            const sZ = isFinite(maxZ - minZ) ? maxZ - minZ : 0;
+            const nativeSize = Math.max(sY, sX, sZ);
+
+            // Restore caller's original rotation and position, apply computed scale
+            model.rotation.set(savedRotX, savedRotY, savedRotZ);
+            model.position.y = savedPosY;
+            model.scale.setScalar(nativeSize > 0.001 ? 2.0 / nativeSize : 0.5);
         }
 
         function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
@@ -2199,9 +2220,9 @@
                                 if(n.material.color) n.material.color.setHex(s.color);
                             }
                         } 
-                    }); 
+                    });
+                    scaleModelTo2Blocks(externalModel);
                     playerGroup.add(externalModel);
-                    scaleModelTo2Blocks(externalModel); // measure AFTER add to scene
                     
                     mixer = new THREE.AnimationMixer(externalModel); 
                     actions = {};
@@ -2435,9 +2456,9 @@
                                     if(n.material.color) n.material.color.setHex(s.color);
                                 }
                             } 
-                        }); 
+                        });
+                        scaleModelTo2Blocks(externalModel);
                         playerGroup.add(externalModel);
-                        scaleModelTo2Blocks(externalModel); // measure AFTER add to scene
                         mixer = new THREE.AnimationMixer(externalModel); 
                         actions = {};
                         // Always store animations on the scene object so remote player clones can access them
