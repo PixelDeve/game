@@ -1749,59 +1749,96 @@
             return clickables;
         }
 
+        // ── Reusable flat block buffer — avoids allocation per chunk ──
+        // Covers (CHUNK_SIZE+2) × 36 × (CHUNK_SIZE+2) with 1-block border on X/Z
+        const _CB_W = CHUNK_SIZE + 2; // 18
+        const _CB_H = 36;
+        const _cbBuf = new Uint8Array(_CB_W * _CB_H * _CB_W); // ~11kB, allocated once
+
         function buildChunk(cx, cz) {
-            const pos=[], norm=[], uv=[], color=[], idx=[];
-            let count = 0;
+            const ox = cx * CHUNK_SIZE - 1; // world X of buffer index 0
+            const oz = cz * CHUNK_SIZE - 1; // world Z of buffer index 0
             const ATLAS_COLS_INV = 1 / ATLAS_COLS;
             const ATLAS_ROWS_INV = 1 / ATLAS_ROWS;
-            for(let x=0; x<CHUNK_SIZE; x++) {
-                for(let z=0; z<CHUNK_SIZE; z++) {
-                    const wx = cx*CHUNK_SIZE+x, wz = cz*CHUNK_SIZE+z;
-                    // ── Skip column early if surface is below 0 (shouldn't happen, guard) ──
+
+            // ── Pass 1: fill flat buffer with block IDs (no string keys in inner loop) ──
+            for (let bx = 0; bx < _CB_W; bx++) {
+                for (let bz = 0; bz < _CB_W; bz++) {
+                    const wx = ox + bx, wz = oz + bz;
                     const colH = _terrH(wx, wz);
-                    const yMax = Math.min(34, colH + 9); // 9 above surface covers trees/snow
-                    for(let y=0; y<yMax; y++) {
-                        const type = getBlock(wx, y, wz);
-                        if(type === 0 || !BLOCKS[type]) continue;
+                    const yMax = Math.min(_CB_H, colH + 10);
+                    const base = (bx * _CB_W + bz) * _CB_H;
+                    for (let y = 0; y < yMax; y++) {
+                        _cbBuf[base + y] = getBlock(wx, y, wz);
+                    }
+                    // fill rest with 0 (air) — buffer was zeroed at init; only need to zero if reused
+                    for (let y = yMax; y < _CB_H; y++) _cbBuf[base + y] = 0;
+                }
+            }
+
+            // ── Pass 2: mesh generation — all neighbor lookups use _cbBuf[index] (integer array) ──
+            const pos=[], norm=[], uv=[], color=[], idx=[];
+            let count = 0;
+
+            for (let x = 1; x <= CHUNK_SIZE; x++) {        // local buffer x (1..16 = chunk)
+                for (let z = 1; z <= CHUNK_SIZE; z++) {
+                    const wx = ox + x, wz = oz + z;
+                    const base = (x * _CB_W + z) * _CB_H;
+                    const colH = _terrH(wx, wz);
+                    const yMax = Math.min(_CB_H - 1, colH + 9);
+
+                    for (let y = 0; y < yMax; y++) {
+                        const type = _cbBuf[base + y];
+                        if (type === 0 || !BLOCKS[type]) continue;
                         const dk = `${wx},${y},${wz}`;
                         if (BLOCKS[type].isDoor && blockStates[dk] && blockStates[dk].open) continue;
                         const isTorch = BLOCKS[type].isTorch;
                         const isDoor  = BLOCKS[type].isDoor && (!blockStates[dk] || !blockStates[dk].open);
                         const tiles   = BLOCKS[type].tiles;
-                        for(let fi=0; fi<6; fi++) {
+
+                        for (let fi = 0; fi < 6; fi++) {
                             const f = CHUNK_FACES[fi];
-                            const nType = getBlock(wx+f.nx, y+f.ny, wz+f.nz);
-                            if (!isTorch && !isDoor) if(nType !== 0 && (!BLOCKS[nType].transparent || nType === type)) continue;
+                            // Neighbor lookup from flat buffer — pure integer index, zero allocations
+                            const ny = y + f.ny;
+                            let nType;
+                            if (ny < 0 || ny >= _CB_H) {
+                                nType = 0;
+                            } else {
+                                nType = _cbBuf[((x + f.nx) * _CB_W + (z + f.nz)) * _CB_H + ny];
+                            }
+                            if (!isTorch && !isDoor) {
+                                if (nType !== 0 && (!BLOCKS[nType] || !BLOCKS[nType].transparent || nType === type)) continue;
+                            }
                             const fv = f.v;
-                            for(let i=0; i<4; i++) {
-                                const bi = i*3;
+                            for (let i = 0; i < 4; i++) {
+                                const bi = i * 3;
                                 let vx = fv[bi], vy = fv[bi+1], vz2 = fv[bi+2];
-                                if(isTorch) { vx = 0.4375 + vx*0.125; vy = vy*0.625; vz2 = 0.4375 + vz2*0.125; }
-                                else if(isDoor) { vx = 0.4625 + vx*0.075; }
+                                if (isTorch) { vx = 0.4375 + vx*0.125; vy = vy*0.625; vz2 = 0.4375 + vz2*0.125; }
+                                else if (isDoor) { vx = 0.4625 + vx*0.075; }
                                 pos.push(wx+vx, y+vy, wz+vz2);
                                 norm.push(f.nx, f.ny, f.nz);
-                                if(isTorch) color.push(1.5, 1.3, 1.0);
-                                else { const ao=f.ao; color.push(ao, ao, ao); }
+                                if (isTorch) color.push(1.5, 1.3, 1.0);
+                                else { const ao = f.ao; color.push(ao, ao, ao); }
                             }
                             const tIdx = tiles[fi];
                             const u  = (tIdx % ATLAS_COLS) * ATLAS_COLS_INV;
                             const v  = 1 - (Math.floor(tIdx * ATLAS_COLS_INV) + 1) * ATLAS_ROWS_INV;
-                            const us = ATLAS_COLS_INV, vs = ATLAS_ROWS_INV;
-                            uv.push(u, v, u, v+vs, u+us, v+vs, u+us, v);
+                            uv.push(u, v, u, v+ATLAS_ROWS_INV, u+ATLAS_COLS_INV, v+ATLAS_ROWS_INV, u+ATLAS_COLS_INV, v);
                             idx.push(count, count+1, count+2, count, count+2, count+3);
                             count += 4;
                         }
                     }
                 }
             }
-            if(count === 0) return null;
+
+            if (count === 0) return null;
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
             geo.setAttribute('normal',   new THREE.Float32BufferAttribute(norm, 3));
             geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uv, 2));
             geo.setAttribute('color',    new THREE.Float32BufferAttribute(color, 3));
             geo.setIndex(idx);
-            geo.computeBoundingSphere(); // enables frustum culling
+            geo.computeBoundingSphere();
             if (!sharedChunkMaterial) sharedChunkMaterial = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, transparent: true, alphaTest: 0.1 });
             const mesh = new THREE.Mesh(geo, sharedChunkMaterial);
             mesh.castShadow = !_isLowEnd;
@@ -2492,7 +2529,7 @@
             }
         }
 
-        // ── Async initial world load: batches 3 chunks per yield for speed ──
+        // ── Async initial world load: time-budgeted, yields every ~14ms ──
         async function preloadInitialChunks() {
             const px = Math.floor(playerGroup.position.x/CHUNK_SIZE);
             const pz = Math.floor(playerGroup.position.z/CHUNK_SIZE);
@@ -2502,14 +2539,18 @@
                     chunks.push([x, z, Math.abs(x-px)+Math.abs(z-pz)]);
             chunks.sort((a,b) => a[2]-b[2]);
             const total = chunks.length;
-            const BATCH = _isLowEnd ? 1 : 3; // build more per yield on fast devices
-            for (let i = 0; i < chunks.length; i += BATCH) {
-                for (let b = 0; b < BATCH && i+b < chunks.length; b++)
-                    _addChunkToScene(chunks[i+b][0], chunks[i+b][1]);
-                const pct = Math.round(80 + (Math.min(i+BATCH, total)/total)*18);
-                setJoinStep(4, `GENERATING TERRAIN... ${Math.min(i+BATCH,total)}/${total}`);
+            let i = 0;
+            while (i < total) {
+                const frameStart = performance.now();
+                // Build chunks until we've used ~14ms of this frame's budget
+                while (i < total && (performance.now() - frameStart) < 14) {
+                    _addChunkToScene(chunks[i][0], chunks[i][1]);
+                    i++;
+                }
+                const pct = Math.round(80 + (i / total) * 18);
+                setJoinStep(4, `GENERATING TERRAIN... ${i}/${total}`);
                 document.getElementById('join-progress-bar').style.width = pct + '%';
-                await new Promise(r => setTimeout(r, 0));
+                await new Promise(r => setTimeout(r, 0)); // yield to browser paint
             }
             lastPlayerCX = px; lastPlayerCZ = pz;
         }
