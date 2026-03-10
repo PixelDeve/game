@@ -859,11 +859,7 @@
         // ── FOLIAGE: decorative cross-shaped plants spawned on grass ──
         // Each entry: { file, weight, tint } — weight controls spawn rarity
         const FOLIAGE_TYPES = [
-            { file: 'grass_plant.png',  weight: 55 }, // short grass — most common
-            { file: 'flower_red.png',   weight:  8 },
-            { file: 'flower_yellow.png',weight:  8 },
-            { file: 'flower_blue.png',  weight:  7 },
-            { file: 'flower_white.png', weight:  7 },
+            { file: 'grass_plant.png', weight: 100 }, // short grass only
         ];
         // Cumulative weight thresholds (computed once)
         let FOLIAGE_THRESHOLDS = [];
@@ -1969,12 +1965,10 @@
                         const ty = Math.floor(index / ATLAS_COLS) * S;
                         ctx.save();
                         if (file.includes('door_front')) {
-                            // Door front – vertical planks with handle
                             ctx.fillStyle = '#8B5E3C'; ctx.fillRect(tx, ty, S, S);
                             ctx.fillStyle = '#6B3F1E';
                             for (let i = 0; i < S; i += 8) { ctx.fillRect(tx+i, ty, 1, S); }
                             ctx.fillRect(tx, ty + S/2 - 1, S, 2);
-                            // handle
                             ctx.fillStyle = '#DAA520';
                             ctx.fillRect(tx + S*0.72, ty + S*0.45, 3, 5);
                         } else if (file.includes('door_side')) {
@@ -1987,13 +1981,11 @@
                             ctx.fillRect(tx, ty+S/2, S, 2);
                             ctx.fillRect(tx+S/2, ty, 2, S);
                         } else if (file.includes('chest_front')) {
-                            // Chest front – wood body + lock
                             ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
                             ctx.fillStyle = '#8B5E1A';
                             ctx.fillRect(tx+1, ty+S/2, S-2, 2);
                             ctx.fillRect(tx+1, ty+1, S-2, 2);
                             ctx.fillRect(tx+1, ty+S-3, S-2, 2);
-                            // lock
                             ctx.fillStyle = '#DAA520';
                             ctx.fillRect(tx+S/2-3, ty+S/2-4, 6, 5);
                             ctx.fillStyle = '#B8860B';
@@ -2015,11 +2007,8 @@
                         resolve();
                         return;
                     }
-                    const img = new Image();
-                    img.crossOrigin = "Anonymous";
-                    const assetURL = new URL(`./assets/${file}`, window.location.href).href;
-                    const rootURL  = new URL(`./${file}`,        window.location.href).href;
 
+                    // ── Draw error tile (magenta) ──
                     const drawError = () => {
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
@@ -2028,40 +2017,50 @@
                         resolve();
                     };
 
-                    img.onload = () => {
-                        const tx = (index % ATLAS_COLS) * S;
-                        const ty = Math.floor(index / ATLAS_COLS) * S;
-                        ctx.drawImage(img, tx, ty, S, S);
-                        resolve();
+                    // ── Draw image to atlas ──
+                    const drawImage = (src) => {
+                        return new Promise((ok, fail) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                const tx = (index % ATLAS_COLS) * S;
+                                const ty = Math.floor(index / ATLAS_COLS) * S;
+                                ctx.drawImage(img, tx, ty, S, S);
+                                ok();
+                            };
+                            img.onerror = () => fail(new Error('img load failed'));
+                            img.src = src;
+                        });
                     };
 
-                    // Try assets/ first, then root, then show error tile
-                    img.onerror = () => {
-                        const img2 = new Image();
-                        img2.crossOrigin = "Anonymous";
-                        img2.onload = () => {
-                            const tx = (index % ATLAS_COLS) * S;
-                            const ty = Math.floor(index / ATLAS_COLS) * S;
-                            ctx.drawImage(img2, tx, ty, S, S);
-                            resolve();
-                        };
-                        img2.onerror = drawError;
-                        cachedFetch(rootURL).then(res => res.blob()).then(blob => {
-                            img2.src = URL.createObjectURL(blob);
-                        }).catch(() => { img2.src = rootURL; });
+                    // ── Try fetching from assets/, then root/, then error tile ──
+                    const tryFetch = async (url) => {
+                        const res = await fetch(url).catch(() => null);
+                        if (!res || !res.ok) throw new Error('not ok');
+                        const blob = await res.blob();
+                        const objURL = URL.createObjectURL(blob);
+                        try {
+                            await drawImage(objURL);
+                        } finally {
+                            URL.revokeObjectURL(objURL);
+                        }
                     };
 
-                    // Use cachedFetch → blob URL so the image comes from cache second time
-                    cachedFetch(assetURL).then(res => res.blob()).then(blob => {
-                        img.src = URL.createObjectURL(blob);
-                    }).catch(() => { img.src = assetURL; });
+                    const assetURL = new URL(`./assets/${file}`, window.location.href).href;
+                    const rootURL  = new URL(`./${file}`, window.location.href).href;
+
+                    tryFetch(assetURL)
+                        .catch(() => tryFetch(rootURL))
+                        .catch(() => drawError())
+                        .then(resolve)
+                        .catch(resolve); // always resolve, never hang
                 });
             };
 
-            for (let i = 0; i < count; i++) {
-                await loadTile(uniqueFiles[i], i);
-                fileToId[uniqueFiles[i]] = i;
-            }
+            // Load all tiles in parallel for fast startup
+            await Promise.all(uniqueFiles.map((file, i) => {
+                fileToId[file] = i;
+                return loadTile(file, i);
+            }));
 
             Object.values(BLOCKS).forEach(b => {
                 if(b.files) {
