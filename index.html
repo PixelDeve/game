@@ -1957,106 +1957,80 @@
 
             const fileToId = {};
             
-            const loadTile = (file, index) => {
-                return new Promise((resolve) => {
-                    // ── Procedural textures for special blocks ──
-                    if (file.startsWith('__')) {
-                        const tx = (index % ATLAS_COLS) * S;
-                        const ty = Math.floor(index / ATLAS_COLS) * S;
-                        ctx.save();
-                        if (file.includes('door_front')) {
-                            ctx.fillStyle = '#8B5E3C'; ctx.fillRect(tx, ty, S, S);
-                            ctx.fillStyle = '#6B3F1E';
-                            for (let i = 0; i < S; i += 8) { ctx.fillRect(tx+i, ty, 1, S); }
-                            ctx.fillRect(tx, ty + S/2 - 1, S, 2);
-                            ctx.fillStyle = '#DAA520';
-                            ctx.fillRect(tx + S*0.72, ty + S*0.45, 3, 5);
-                        } else if (file.includes('door_side')) {
-                            ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
-                            ctx.fillStyle = '#5B3010';
-                            for (let i = 0; i < S; i += 6) { ctx.fillRect(tx, ty+i, S, 1); }
-                        } else if (file.includes('door_top')) {
-                            ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
-                            ctx.fillStyle = '#5B3010';
-                            ctx.fillRect(tx, ty+S/2, S, 2);
-                            ctx.fillRect(tx+S/2, ty, 2, S);
-                        } else if (file.includes('chest_front')) {
-                            ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
-                            ctx.fillStyle = '#8B5E1A';
-                            ctx.fillRect(tx+1, ty+S/2, S-2, 2);
-                            ctx.fillRect(tx+1, ty+1, S-2, 2);
-                            ctx.fillRect(tx+1, ty+S-3, S-2, 2);
-                            ctx.fillStyle = '#DAA520';
-                            ctx.fillRect(tx+S/2-3, ty+S/2-4, 6, 5);
-                            ctx.fillStyle = '#B8860B';
-                            ctx.fillRect(tx+S/2-2, ty+S/2-6, 4, 3);
-                        } else if (file.includes('chest_side')) {
-                            ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
-                            ctx.fillStyle = '#8B5E1A';
-                            ctx.fillRect(tx+1, ty+S/2, S-2, 2);
-                            ctx.fillRect(tx+1, ty+1, S-2, 2);
-                        } else if (file.includes('chest_top')) {
-                            ctx.fillStyle = '#B8842A'; ctx.fillRect(tx, ty, S, S);
-                            ctx.fillStyle = '#8B5E1A';
-                            ctx.fillRect(tx+S/4, ty+1, S/2, S-2);
-                            ctx.fillRect(tx+1, ty+S/4, S-2, S/2);
-                        } else {
-                            ctx.fillStyle = '#888'; ctx.fillRect(tx, ty, S, S);
-                        }
-                        ctx.restore();
-                        resolve();
-                        return;
+            // Most reliable tile loader: direct <img> tag with per-tile timeout
+            const loadTile = (file, index) => new Promise((resolve) => {
+                const tx = (index % ATLAS_COLS) * S;
+                const ty = Math.floor(index / ATLAS_COLS) * S;
+
+                const drawError = () => {
+                    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(tx, ty, S, S);
+                    ctx.fillStyle = '#FF00FF'; ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
+                    resolve();
+                };
+
+                // ── Procedural textures ──
+                if (file.startsWith('__')) {
+                    ctx.save();
+                    if (file.includes('door_front')) {
+                        ctx.fillStyle = '#8B5E3C'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#6B3F1E';
+                        for (let i = 0; i < S; i += 8) ctx.fillRect(tx+i, ty, 1, S);
+                        ctx.fillRect(tx, ty + S/2 - 1, S, 2);
+                        ctx.fillStyle = '#DAA520'; ctx.fillRect(tx + S*0.72, ty + S*0.45, 3, 5);
+                    } else if (file.includes('door_side')) {
+                        ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#5B3010';
+                        for (let i = 0; i < S; i += 6) ctx.fillRect(tx, ty+i, S, 1);
+                    } else if (file.includes('door_top')) {
+                        ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#5B3010';
+                        ctx.fillRect(tx, ty+S/2, S, 2); ctx.fillRect(tx+S/2, ty, 2, S);
+                    } else if (file.includes('chest_front')) {
+                        ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#8B5E1A';
+                        ctx.fillRect(tx+1, ty+S/2, S-2, 2); ctx.fillRect(tx+1, ty+1, S-2, 2); ctx.fillRect(tx+1, ty+S-3, S-2, 2);
+                        ctx.fillStyle = '#DAA520'; ctx.fillRect(tx+S/2-3, ty+S/2-4, 6, 5);
+                        ctx.fillStyle = '#B8860B'; ctx.fillRect(tx+S/2-2, ty+S/2-6, 4, 3);
+                    } else if (file.includes('chest_side')) {
+                        ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#8B5E1A';
+                        ctx.fillRect(tx+1, ty+S/2, S-2, 2); ctx.fillRect(tx+1, ty+1, S-2, 2);
+                    } else if (file.includes('chest_top')) {
+                        ctx.fillStyle = '#B8842A'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#8B5E1A';
+                        ctx.fillRect(tx+S/4, ty+1, S/2, S-2); ctx.fillRect(tx+1, ty+S/4, S-2, S/2);
+                    } else {
+                        ctx.fillStyle = '#888'; ctx.fillRect(tx, ty, S, S);
                     }
+                    ctx.restore();
+                    return resolve();
+                }
 
-                    // ── Draw error tile (magenta) ──
-                    const drawError = () => {
-                        const tx = (index % ATLAS_COLS) * S;
-                        const ty = Math.floor(index / ATLAS_COLS) * S;
-                        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(tx, ty, S, S);
-                        ctx.fillStyle = '#FF00FF'; ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
+                // ── Load real image — try assets/ then root, 4s timeout per tile ──
+                let done = false;
+                const finish = () => { done = true; };
+
+                const tryImg = (src, onFail) => {
+                    if (done) return;
+                    const img = new Image();
+                    const t = setTimeout(() => { if (!done) onFail(); }, 4000);
+                    img.onload = () => {
+                        clearTimeout(t);
+                        if (done) return;
+                        finish();
+                        ctx.drawImage(img, tx, ty, S, S);
                         resolve();
                     };
+                    img.onerror = () => { clearTimeout(t); if (!done) onFail(); };
+                    img.src = src;
+                };
 
-                    // ── Draw image to atlas ──
-                    const drawImage = (src) => {
-                        return new Promise((ok, fail) => {
-                            const img = new Image();
-                            img.onload = () => {
-                                const tx = (index % ATLAS_COLS) * S;
-                                const ty = Math.floor(index / ATLAS_COLS) * S;
-                                ctx.drawImage(img, tx, ty, S, S);
-                                ok();
-                            };
-                            img.onerror = () => fail(new Error('img load failed'));
-                            img.src = src;
-                        });
-                    };
+                tryImg(`./assets/${file}`, () =>
+                    tryImg(`./${file}`, () => { finish(); drawError(); })
+                );
+            });
 
-                    // ── Try fetching from assets/, then root/, then error tile ──
-                    const tryFetch = async (url) => {
-                        const res = await fetch(url).catch(() => null);
-                        if (!res || !res.ok) throw new Error('not ok');
-                        const blob = await res.blob();
-                        const objURL = URL.createObjectURL(blob);
-                        try {
-                            await drawImage(objURL);
-                        } finally {
-                            URL.revokeObjectURL(objURL);
-                        }
-                    };
-
-                    const assetURL = new URL(`./assets/${file}`, window.location.href).href;
-                    const rootURL  = new URL(`./${file}`, window.location.href).href;
-
-                    tryFetch(assetURL)
-                        .catch(() => tryFetch(rootURL))
-                        .catch(() => drawError())
-                        .then(resolve)
-                        .catch(resolve); // always resolve, never hang
-                });
-            };
-
-            // Load all tiles in parallel for fast startup
+            // Load all tiles in parallel
             await Promise.all(uniqueFiles.map((file, i) => {
                 fileToId[file] = i;
                 return loadTile(file, i);
@@ -3271,7 +3245,18 @@
 
         async function init() {
             setMenuProgress(10, 'LOADING TEXTURES...');
-            atlas = await createAtlas();
+            // Hard 15s timeout — createAtlas can never hang the loading screen
+            atlas = await Promise.race([
+                createAtlas(),
+                new Promise(res => setTimeout(() => {
+                    console.warn('Atlas load timed out, using blank atlas');
+                    const c = document.createElement('canvas');
+                    c.width = 256; c.height = 256;
+                    const t = new THREE.CanvasTexture(c);
+                    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+                    res(t);
+                }, 15000))
+            ]);
             setMenuProgress(30, 'BUILDING SCENE...');
             scene = new THREE.Scene();
             // ── Minecraft-style exponential fog ──
