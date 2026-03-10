@@ -1902,6 +1902,7 @@
         }
 
         async function createAtlas() {
+          try {
             const S = 32;
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -2105,6 +2106,14 @@
             uniqueFiles.forEach((file, i) => tryUpgrade(file, i));
 
             return tex;
+          } catch(e) {
+            console.error('createAtlas failed:', e);
+            // Return a blank 256x256 texture so the game still loads
+            const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+            const t = new THREE.CanvasTexture(c);
+            t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+            return t;
+          }
         }
 
         function getBlock(x, y, z) {
@@ -3296,6 +3305,12 @@
         }
 
         async function init() {
+            const showSignIn = () => {
+                setMenuProgress(100, 'SIGN IN TO PLAY');
+                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
+                document.getElementById('start-btn').style.display = 'block';
+            };
+            try {
             setMenuProgress(10, 'LOADING TEXTURES...');
             atlas = await createAtlas();
             setMenuProgress(30, 'BUILDING SCENE...');
@@ -3406,17 +3421,24 @@
                     if (user) {
                         startGame(user);
                     } else {
-                        document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
-                        document.getElementById('start-btn').style.display = 'block';
+                        showSignIn();
                     }
                 });
             }).catch(() => {
                 clearTimeout(authTimeout);
-                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
-                document.getElementById('start-btn').style.display = 'block';
+                showSignIn();
             });
+            } catch(err) {
+                console.error('init error:', err);
+                showSignIn();
+            }
         }
-        let last = performance.now(); init();
+        let last = performance.now();
+        init().catch(err => {
+            console.error('init() crashed:', err);
+            document.getElementById('loading-text').innerText = 'ERROR - REFRESH PAGE';
+            document.getElementById('start-btn').style.display = 'block';
+        });
     </script>
 </body>
 </html>
