@@ -132,24 +132,7 @@
         }
         #inv-btn:hover { background: rgba(255,255,255,0.22); }
 
-        /* ══════════════════════════════
-           REACTION BAR
-        ══════════════════════════════ */
-        #reaction-bar {
-            position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%);
-            display: none; gap: 4px; pointer-events: auto; z-index: 60;
-        }
-        #reaction-bar.visible { display: flex; }
-        .reaction-btn {
-            width: 36px; height: 36px;
-            background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
-            border: 1.5px solid rgba(255,255,255,0.18); border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 17px; cursor: pointer;
-            transition: transform 0.12s, background 0.12s;
-        }
-        .reaction-btn:hover  { background: rgba(255,255,255,0.18); }
-        .reaction-btn:active { transform: scale(0.82); }
+
 
         /* ══════════════════════════════
            CHAT PANEL
@@ -550,14 +533,7 @@
             <div id="players-btn" class="hud-btn"><span class="hud-icon">👥</span> WHO</div>
         </div>
 
-        <!-- Quick reaction bar -->
-        <div id="reaction-bar">
-            <div class="reaction-btn" data-react="👋">👋</div>
-            <div class="reaction-btn" data-react="❤️">❤️</div>
-            <div class="reaction-btn" data-react="😂">😂</div>
-            <div class="reaction-btn" data-react="🎉">🎉</div>
-            <div class="reaction-btn" data-react="👍">👍</div>
-        </div>
+
 
         <div id="chat-container">
             <div id="chat-header">ID: <span id="user-display-id">...</span></div>
@@ -671,7 +647,7 @@
         //  ASSET CACHE  (Cache API + IndexedDB)
         // ══════════════════════════════════════
         const ASSET_CACHE   = 'voxelpocket-assets-v1';
-        const ATLAS_IDB_KEY = 'atlas-v3';   // bump this whenever block textures change
+        const ATLAS_IDB_KEY = 'atlas-v4';   // bump this whenever block textures change
 
         // Generic fetch-with-cache — stores Response in Cache API
         async function cachedFetch(url) {
@@ -897,6 +873,50 @@
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
         let sharedChunkMaterial = null;
+
+        // ── SOUND SYSTEM ──
+        const sounds = {};
+        const SOUND_FILES = { click: 'click.mp3', break: 'break.mp3', walk: 'walk.mp3', place: 'place.mp3' };
+        let audioCtx = null;
+
+        function getAudioCtx() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            return audioCtx;
+        }
+
+        async function loadSounds() {
+            for (const [name, file] of Object.entries(SOUND_FILES)) {
+                for (const base of [`./assets/${file}`, `./${file}`]) {
+                    try {
+                        const res = await fetch(base);
+                        if (!res.ok) continue;
+                        const buf = await res.arrayBuffer();
+                        const ctx = getAudioCtx();
+                        sounds[name] = await ctx.decodeAudioData(buf);
+                        break;
+                    } catch(e) { /* try next path */ }
+                }
+            }
+        }
+
+        function playSound(name, volume = 1.0, pitchVariance = 0.08) {
+            const buf = sounds[name];
+            if (!buf) return;
+            try {
+                const ctx = getAudioCtx();
+                if (ctx.state === 'suspended') ctx.resume();
+                const src = ctx.createBufferSource();
+                const gain = ctx.createGain();
+                src.buffer = buf;
+                src.playbackRate.value = 1 + (Math.random() - 0.5) * pitchVariance;
+                gain.gain.value = volume;
+                src.connect(gain);
+                gain.connect(ctx.destination);
+                src.start(0);
+            } catch(e) {}
+        }
+
+        let _lastWalkSound = 0; // throttle footstep sounds
 
         // ── SOCIAL ──
         const PLAYER_COLORS = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63','#00bcd4','#8bc34a'];
@@ -1976,19 +1996,39 @@
                     const img = new Image();
                     img.crossOrigin = "Anonymous";
                     const assetURL = new URL(`./assets/${file}`, window.location.href).href;
-                    img.onload = () => {
-                        const tx = (index % ATLAS_COLS) * S;
-                        const ty = Math.floor(index / ATLAS_COLS) * S;
-                        ctx.drawImage(img, tx, ty, S, S);
-                        resolve();
-                    };
-                    img.onerror = () => {
+                    const rootURL  = new URL(`./${file}`,        window.location.href).href;
+
+                    const drawError = () => {
                         const tx = (index % ATLAS_COLS) * S;
                         const ty = Math.floor(index / ATLAS_COLS) * S;
                         ctx.fillStyle = '#FFFFFF'; ctx.fillRect(tx, ty, S, S);
                         ctx.fillStyle = '#FF00FF'; ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
                         resolve();
                     };
+
+                    img.onload = () => {
+                        const tx = (index % ATLAS_COLS) * S;
+                        const ty = Math.floor(index / ATLAS_COLS) * S;
+                        ctx.drawImage(img, tx, ty, S, S);
+                        resolve();
+                    };
+
+                    // Try assets/ first, then root, then show error tile
+                    img.onerror = () => {
+                        const img2 = new Image();
+                        img2.crossOrigin = "Anonymous";
+                        img2.onload = () => {
+                            const tx = (index % ATLAS_COLS) * S;
+                            const ty = Math.floor(index / ATLAS_COLS) * S;
+                            ctx.drawImage(img2, tx, ty, S, S);
+                            resolve();
+                        };
+                        img2.onerror = drawError;
+                        cachedFetch(rootURL).then(res => res.blob()).then(blob => {
+                            img2.src = URL.createObjectURL(blob);
+                        }).catch(() => { img2.src = rootURL; });
+                    };
+
                     // Use cachedFetch → blob URL so the image comes from cache second time
                     cachedFetch(assetURL).then(res => res.blob()).then(blob => {
                         img.src = URL.createObjectURL(blob);
@@ -2141,6 +2181,7 @@
                     if (place) {
                         // Right-click → toggle
                         toggleDoor(dx, dy, dz);
+                        playSound('click', 0.8);
                         showHint(blockStates[dk]?.open ? '🚪 Door opened' : '🚪 Door closed');
                     } else {
                         // Left-click → break
@@ -2177,6 +2218,7 @@
                     const hitType = getBlock(bx, by, bz);
                     if (BLOCKS[hitType] && BLOCKS[hitType].isDoor) {
                         toggleDoor(bx, by, bz);
+                        playSound('click', 0.8);
                         showHint(blockStates[`${bx},${by},${bz}`]?.open ? '🚪 Door opened' : '🚪 Door closed');
                         return true;
                     }
@@ -2242,6 +2284,7 @@
 
                     refreshChunk(pbx, pbz);
                     broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
+                    playSound('place', 0.85);
                 } else {
                     const type = getBlock(bx, by, bz);
                     // Prevent breaking red wool markers if active claim
@@ -2315,6 +2358,7 @@
 
                     refreshChunk(bx, bz);
                     broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
+                    playSound('break', 0.9);
                 }
                 saveGame();
                 return true;
@@ -2440,19 +2484,6 @@
             document.getElementById('players-btn').onclick = (e) => { e.stopPropagation(); togglePlayersPanel(); };
             document.getElementById('close-players-btn').onclick = () => togglePlayersPanel();
 
-            // Reaction bar toggle — tap the MSG button a second time while chat is open
-            document.querySelectorAll('.reaction-btn').forEach(btn => {
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const emoji = btn.dataset.react;
-                    broadcastAction('REACT', { emoji });
-                    // Show on self head too
-                    if (povMode !== 0) showChatBubble('self', emoji);
-                    // Quick pulse animation
-                    btn.style.transform = 'scale(1.4)';
-                    setTimeout(() => btn.style.transform = '', 180);
-                };
-            });
             
             document.getElementById('shop-mode-btn').onclick = () => { 
                 shopSellMode = !shopSellMode; 
@@ -2892,15 +2923,15 @@
                 // Minecraft's signature sky is #78A7FF (slightly purple-blue)
                 // Sunrise/sunset are warm orange-pink; nights are very dark navy
                 const skyKeys = [
-                    { t: 0.00, r: 0x08/255, g: 0x08/255, b: 0x14/255 }, // deep midnight
-                    { t: 0.18, r: 0x10/255, g: 0x08/255, b: 0x20/255 }, // pre-dawn purple
+                    { t: 0.00, r: 0x0d/255, g: 0x12/255, b: 0x28/255 }, // deep midnight navy
+                    { t: 0.18, r: 0x14/255, g: 0x0c/255, b: 0x2e/255 }, // pre-dawn purple
                     { t: 0.24, r: 0xe8/255, g: 0x70/255, b: 0x30/255 }, // sunrise orange
                     { t: 0.30, r: 0x78/255, g: 0xa7/255, b: 0xff/255 }, // Minecraft day blue
                     { t: 0.50, r: 0x78/255, g: 0xa7/255, b: 0xff/255 }, // noon — same MC blue
                     { t: 0.70, r: 0x78/255, g: 0xa7/255, b: 0xff/255 }, // afternoon
                     { t: 0.76, r: 0xe8/255, g: 0x60/255, b: 0x18/255 }, // sunset orange
-                    { t: 0.82, r: 0x10/255, g: 0x08/255, b: 0x20/255 }, // post-dusk purple
-                    { t: 1.00, r: 0x08/255, g: 0x08/255, b: 0x14/255 }, // deep midnight
+                    { t: 0.82, r: 0x14/255, g: 0x0c/255, b: 0x2e/255 }, // post-dusk purple
+                    { t: 1.00, r: 0x0d/255, g: 0x12/255, b: 0x28/255 }, // deep midnight navy
                 ];
                 // Find surrounding keyframes and lerp
                 let k0 = skyKeys[0], k1 = skyKeys[skyKeys.length-1];
@@ -2920,7 +2951,8 @@
                 const sunT = Math.max(0, Math.cos(angle)); // 0 at night, 1 at noon
                 const dawnFactor = Math.max(0, Math.min(1, (t - 0.19) * 18, (0.81 - t) * 18));
                 sunLight.intensity  = sunT * 1.4;
-                ambientLight.intensity = 0.05 + dawnFactor * 0.35 + sunT * 0.45;
+                // Base 0.28 ensures terrain always visible at night (moonlit feel)
+                ambientLight.intensity = 0.28 + dawnFactor * 0.25 + sunT * 0.35;
                 // No shadows — using baked vertex AO (Minecraft style)
 
                 // ── Fog density: thicker at night (like Minecraft void blindness) ──
@@ -2996,7 +3028,15 @@
                 raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
                 if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
             }
-            updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld(); renderer.render(scene, camera);
+            updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld();
+            // ── Footstep sound ──
+            const _nowMs = performance.now();
+            const _moving = Math.hypot(vel.x || 0, vel.z || 0) > 0.5;
+            if (_moving && onGround && _nowMs - _lastWalkSound > 420) {
+                _lastWalkSound = _nowMs;
+                playSound('walk', 0.55, 0.12);
+            }
+            renderer.render(scene, camera);
         }
 
         async function startGame(user) {
@@ -3060,6 +3100,7 @@
 
             setJoinStep(3, 'CONNECTING TO SERVER...');
             initNetwork();
+            loadSounds(); // non-blocking — sounds load in background
             await new Promise(r => setTimeout(r, 400));
 
             setJoinStep(4, 'GENERATING TERRAIN...');
@@ -3076,7 +3117,6 @@
                 document.getElementById('hud-left').classList.add('visible');
                 document.getElementById('hud-right').classList.add('visible');
             }
-            document.getElementById('reaction-bar').classList.add('visible');
             updateWorld();
             await new Promise(r => setTimeout(r, 500));
 
