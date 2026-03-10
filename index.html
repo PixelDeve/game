@@ -647,7 +647,7 @@
         //  ASSET CACHE  (Cache API + IndexedDB)
         // ══════════════════════════════════════
         const ASSET_CACHE   = 'voxelpocket-assets-v1';
-        const ATLAS_IDB_KEY = 'atlas-v4';   // bump this whenever block textures change
+        const ATLAS_IDB_KEY = 'atlas-v5';   // bump this whenever block textures change
 
         // Generic fetch-with-cache — stores Response in Cache API
         async function cachedFetch(url) {
@@ -856,7 +856,20 @@
                    hardness: 2.5, isChest: true }
         };
 
-        let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds;
+        // ── FOLIAGE: decorative cross-shaped plants spawned on grass ──
+        // Each entry: { file, weight, tint } — weight controls spawn rarity
+        const FOLIAGE_TYPES = [
+            { file: 'grass_plant.png',  weight: 55 }, // short grass — most common
+            { file: 'flower_red.png',   weight:  8 },
+            { file: 'flower_yellow.png',weight:  8 },
+            { file: 'flower_blue.png',  weight:  7 },
+            { file: 'flower_white.png', weight:  7 },
+        ];
+        // Cumulative weight thresholds (computed once)
+        let FOLIAGE_THRESHOLDS = [];
+        let foliageAtlasTiles = []; // tile indices in main atlas (filled after atlas build)
+        let foliageMeshes = {};     // cx,cz → THREE.Mesh
+        let foliageMaterial = null; // shared double-sided transparent mat
         let sunMesh, moonMesh, starsMesh, voidFogMesh;
         let playerGroup, externalModel, cameraPivot, modelLoaded = false;
         let world = {}, chunkMeshes = {}, clickables = [];
@@ -1906,10 +1919,16 @@
                             const S = 32;
                             ATLAS_COLS = Math.round(img.width / S);
                             ATLAS_ROWS = Math.round(img.height / S);
-                            const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
+                            const uniqueFiles = [...new Set([
+                                ...Object.values(BLOCKS).flatMap(b => b.files || []),
+                                ...FOLIAGE_TYPES.map(f => f.file)
+                            ])];
                             const fileToId = {};
                             uniqueFiles.forEach((f, i) => fileToId[f] = i);
                             Object.values(BLOCKS).forEach(b => { if(b.files) b.tiles = b.files.map(f => fileToId[f]); });
+                            // Resolve foliage tile indices
+                            foliageAtlasTiles = FOLIAGE_TYPES.map(ft => fileToId[ft.file] ?? 0);
+                            _buildFoliageThresholds();
                             const tex = new THREE.CanvasTexture(canvas);
                             tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
                             tex.image = canvas;
@@ -1928,7 +1947,10 @@
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             
-            const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
+            const uniqueFiles = [...new Set([
+                ...Object.values(BLOCKS).flatMap(b => b.files || []),
+                ...FOLIAGE_TYPES.map(f => f.file)
+            ])];
             const count = uniqueFiles.length;
             
             ATLAS_COLS = 8;
@@ -2047,6 +2069,10 @@
                 }
             });
 
+            // Resolve foliage tile indices from the built atlas
+            foliageAtlasTiles = FOLIAGE_TYPES.map(ft => fileToId[ft.file] ?? 0);
+            _buildFoliageThresholds();
+
             const tex = new THREE.CanvasTexture(canvas);
             tex.magFilter = THREE.NearestFilter;
             tex.minFilter = THREE.NearestFilter;
@@ -2153,17 +2179,121 @@
             return mesh;
         }
 
+        function _buildFoliageThresholds() {
+            let total = FOLIAGE_TYPES.reduce((s, f) => s + f.weight, 0);
+            let acc = 0;
+            FOLIAGE_THRESHOLDS = FOLIAGE_TYPES.map(f => { acc += f.weight; return acc / total; });
+        }
+
+        function buildFoliageChunk(cx, cz) {
+            if (!foliageAtlasTiles.length) return null;
+            const pos = [], uv = [], idx = [], col = [];
+            let count = 0;
+
+            for (let x = 0; x < CHUNK_SIZE; x++) {
+                for (let z = 0; z < CHUNK_SIZE; z++) {
+                    const wx = cx * CHUNK_SIZE + x, wz = cz * CHUNK_SIZE + z;
+                    // Find surface y
+                    let sy = -1;
+                    for (let y = 31; y >= 1; y--) {
+                        const b = getBlock(wx, y, wz);
+                        if (b !== 0) { sy = y; break; }
+                    }
+                    if (sy < 0) continue;
+
+                    // Only spawn on grass (type 1) with air above
+                    const surfaceType = getBlock(wx, sy, wz);
+                    if (surfaceType !== 1) continue;
+                    if (getBlock(wx, sy + 1, wz) !== 0) continue;
+
+                    // Deterministic spawn check using hash — ~35% of grass tiles get foliage
+                    const h = hash(wx * 7 + 3, wz * 13 + 7) % 10000;
+                    if (h > 3500) continue;
+
+                    // Pick foliage type from weighted table
+                    const t = (hash(wx * 31, wz * 17) % 10000) / 10000;
+                    let typeIdx = FOLIAGE_THRESHOLDS.findIndex(thresh => t < thresh);
+                    if (typeIdx < 0) typeIdx = 0;
+
+                    const tileIdx = foliageAtlasTiles[typeIdx];
+                    const u0 = (tileIdx % ATLAS_COLS) / ATLAS_COLS;
+                    const v0 = 1 - (Math.floor(tileIdx / ATLAS_COLS) + 1) / ATLAS_ROWS;
+                    const us = 1 / ATLAS_COLS, vs = 1 / ATLAS_ROWS;
+
+                    // World position of foliage base (center of block, on top of surface)
+                    const fx = wx + 0.5, fy = sy + 1, fz = wz + 0.5;
+                    const r = 0.5; // half-width of cross quad
+                    const h_plant = 0.4; // short grass height
+                    const brightness = 0.95;
+
+                    const quads = [
+                        [[fx-r, fy,         fz-r], [fx-r, fy+h_plant, fz-r], [fx+r, fy+h_plant, fz+r], [fx+r, fy,         fz+r]],
+                        [[fx+r, fy,         fz-r], [fx+r, fy+h_plant, fz-r], [fx-r, fy+h_plant, fz+r], [fx-r, fy,         fz+r]],
+                    ];
+
+                    quads.forEach(verts => {
+                        verts.forEach(([vx, vy, vz]) => {
+                            pos.push(vx, vy, vz);
+                            col.push(brightness, brightness, brightness);
+                        });
+                        // UVs: bottom-left, top-left, top-right, bottom-right
+                        uv.push(
+                            u0,      v0,
+                            u0,      v0 + vs,
+                            u0 + us, v0 + vs,
+                            u0 + us, v0
+                        );
+                        idx.push(count, count+1, count+2,  count, count+2, count+3);
+                        count += 4;
+                    });
+                }
+            }
+
+            if (count === 0) return null;
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uv,  2));
+            geo.setAttribute('color',    new THREE.Float32BufferAttribute(col, 3));
+            geo.setIndex(idx);
+
+            if (!foliageMaterial) {
+                foliageMaterial = new THREE.MeshBasicMaterial({
+                    map: atlas,
+                    vertexColors: true,
+                    transparent: true,
+                    alphaTest: 0.5,
+                    side: THREE.DoubleSide,
+                    depthWrite: false,
+                });
+            }
+            // Ensure material uses the latest atlas if it was rebuilt
+            foliageMaterial.map = atlas;
+
+            const mesh = new THREE.Mesh(geo, foliageMaterial);
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            return mesh;
+        }
+
         function refreshChunk(wx, wz) {
             const cx = Math.floor(wx/CHUNK_SIZE), cz = Math.floor(wz/CHUNK_SIZE);
             const k = `${cx},${cz}`;
             if(chunkMeshes[k]) {
                 scene.remove(chunkMeshes[k]);
                 clickables = clickables.filter(c => c !== chunkMeshes[k]);
-                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose(); // ── Perf: free GPU memory
+                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose();
                 delete chunkMeshes[k];
+            }
+            if (foliageMeshes[k]) {
+                scene.remove(foliageMeshes[k]);
+                if (foliageMeshes[k].geometry) foliageMeshes[k].geometry.dispose();
+                delete foliageMeshes[k];
             }
             const m = buildChunk(cx, cz);
             if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
+            const fm = buildFoliageChunk(cx, cz);
+            if(fm) { scene.add(fm); foliageMeshes[k] = fm; }
             // Reset chunk tracker so updateWorld won't skip this chunk area
             lastPlayerCX = null; lastPlayerCZ = null;
         }
@@ -2820,17 +2950,24 @@
 
         function updateWorld() {
             const px = Math.floor(playerGroup.position.x/CHUNK_SIZE), pz = Math.floor(playerGroup.position.z/CHUNK_SIZE);
-            // ── Performance: skip if player hasn't changed chunk ──
             if (px === lastPlayerCX && pz === lastPlayerCZ) return;
             lastPlayerCX = px; lastPlayerCZ = pz;
 
             // Load chunks in range
             for(let x=px-RENDER_DIST; x<=px+RENDER_DIST; x++) {
                 for(let z=pz-RENDER_DIST; z<=pz+RENDER_DIST; z++) {
-                    const k = `${x},${z}`; if(!chunkMeshes[k]) { const m = buildChunk(x, z); if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }}
+                    const k = `${x},${z}`;
+                    if(!chunkMeshes[k]) {
+                        const m = buildChunk(x, z);
+                        if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
+                    }
+                    if(!foliageMeshes[k]) {
+                        const fm = buildFoliageChunk(x, z);
+                        if(fm) { scene.add(fm); foliageMeshes[k] = fm; }
+                    }
                 }
             }
-            // ── Performance: unload chunks that are now out of range ──
+            // Unload chunks out of range
             const UNLOAD_DIST = RENDER_DIST + 2;
             for (const k in chunkMeshes) {
                 const [cx, cz] = k.split(',').map(Number);
@@ -2840,6 +2977,15 @@
                     clickables = clickables.filter(c => c !== mesh);
                     if (mesh.geometry) mesh.geometry.dispose();
                     delete chunkMeshes[k];
+                }
+            }
+            for (const k in foliageMeshes) {
+                const [cx, cz] = k.split(',').map(Number);
+                if (Math.abs(cx - px) > UNLOAD_DIST || Math.abs(cz - pz) > UNLOAD_DIST) {
+                    const mesh = foliageMeshes[k];
+                    scene.remove(mesh);
+                    if (mesh.geometry) mesh.geometry.dispose();
+                    delete foliageMeshes[k];
                 }
             }
         }
