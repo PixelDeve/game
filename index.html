@@ -7,267 +7,499 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
+        * { box-sizing: border-box; }
         body { margin: 0; overflow: hidden; background: #000; touch-action: none; user-select: none; font-family: 'Press Start 2P', cursive; }
         #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        
+
+        /* ══════════════════════════════
+           CROSSHAIR
+        ══════════════════════════════ */
         #crosshair {
-            position: absolute; top: 50%; left: 50%; width: 20px; height: 20px;
-            transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center;
+            position: absolute; top: 50%; left: 50%; width: 22px; height: 22px;
+            transform: translate(-50%, -50%);
         }
-        #crosshair::before { content: ''; position: absolute; width: 16px; height: 2px; background: rgba(255,255,255,0.8); mix-blend-mode: difference; }
-        #crosshair::after { content: ''; position: absolute; width: 2px; height: 16px; background: rgba(255,255,255,0.8); mix-blend-mode: difference; }
+        #crosshair::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 2px; margin-top: -1px; background: rgba(255,255,255,0.9); mix-blend-mode: difference; }
+        #crosshair::after  { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255,255,255,0.9); mix-blend-mode: difference; }
 
         #break-progress {
-            position: absolute; top: 50%; left: 50%; width: 40px; height: 40px;
-            border: 4px solid rgba(0,0,0,0.5); border-top-color: #fff; border-radius: 50%;
+            position: absolute; top: 50%; left: 50%; width: 44px; height: 44px;
+            border: 3px solid rgba(255,255,255,0.15); border-top-color: #fff; border-radius: 50%;
             transform: translate(-50%, -50%) scale(0);
-            z-index: 10; transition: transform 0.1s linear;
+            z-index: 10; transition: transform 0.12s ease;
         }
 
-        .corner-btn {
-            position: absolute; top: 10px; width: 36px; height: 36px;
-            background: rgba(0,0,0,0.5); border: 2px solid #fff; color: #fff;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 7px; cursor: pointer; pointer-events: auto;
-            box-shadow: 0 3px 0 rgba(0,0,0,0.3); z-index: 100;
+        /* ══════════════════════════════
+           TOP-LEFT BUTTON GROUP
+        ══════════════════════════════ */
+        #hud-left {
+            position: absolute; top: 12px; left: 12px;
+            display: none; gap: 6px; align-items: center;
+            pointer-events: auto; z-index: 100;
         }
-        #pause-btn { left: 10px; }
-        #chat-toggle-btn { left: 52px; }
-        #fs-btn { right: 52px; } 
-        #cam-btn { right: 10px; }
-        #shop-btn { top: 52px; left: 10px; width: 78px; font-size: 8px; background: #DAA520; color: #000; }
-        
-        .corner-btn:active { transform: translateY(2px); box-shadow: none; }
+        #hud-left.visible { display: flex; }
 
+        /* ══════════════════════════════
+           TOP-RIGHT BUTTON GROUP
+        ══════════════════════════════ */
+        #hud-right {
+            position: absolute; top: 12px; right: 12px;
+            display: none; gap: 6px; align-items: center;
+            pointer-events: auto; z-index: 100; flex-direction: row-reverse;
+        }
+        #hud-right.visible { display: flex; }
+
+        /* shared hud button style */
+        .hud-btn {
+            height: 36px; min-width: 36px; padding: 0 10px;
+            background: rgba(0,0,0,0.55);
+            backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(255,255,255,0.18);
+            border-radius: 8px;
+            color: #fff; font-family: 'Press Start 2P'; font-size: 7px;
+            display: flex; align-items: center; justify-content: center; gap: 5px;
+            cursor: pointer; pointer-events: auto;
+            transition: background 0.15s, border-color 0.15s, transform 0.1s;
+            white-space: nowrap;
+        }
+        .hud-btn:hover  { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
+        .hud-btn:active { transform: scale(0.93); }
+        .hud-btn .hud-icon { font-size: 14px; line-height: 1; }
+
+        #pause-btn  { }
+        #chat-toggle-btn { }
+        #shop-btn   { background: rgba(218,165,32,0.25); border-color: rgba(218,165,32,0.5); color: #FFD700; }
+        #shop-btn:hover { background: rgba(218,165,32,0.45); }
+        #players-btn { background: rgba(46,204,113,0.2); border-color: rgba(46,204,113,0.45); color: #2ecc71; }
+        #players-btn:hover { background: rgba(46,204,113,0.35); }
+        #fs-btn  { }
+        #cam-btn { }
+
+        /* ══════════════════════════════
+           COIN DISPLAY  (top-center)
+        ══════════════════════════════ */
         #coin-display {
-            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.6); border: 2px solid #DAA520; color: #FFD700;
-            padding: 8px 15px; font-size: 10px; z-index: 90; text-shadow: 1px 1px #000;
+            position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(218,165,32,0.45);
+            border-radius: 20px; color: #FFD700;
+            padding: 7px 18px; font-size: 9px; z-index: 90;
+            text-shadow: 0 0 12px rgba(218,165,32,0.6);
+            letter-spacing: 1px; white-space: nowrap;
+            pointer-events: none;
         }
 
+        /* ══════════════════════════════
+           HOTBAR
+        ══════════════════════════════ */
         #hotbar-container {
-            position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-            display: flex; gap: 2px; background: rgba(0,0,0,0.4); padding: 2px; border: 3px solid #111; pointer-events: auto;
+            position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+            display: flex; align-items: center; gap: 3px;
+            background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
+            padding: 5px 6px; border: 1.5px solid rgba(255,255,255,0.12);
+            border-radius: 12px; pointer-events: auto;
             max-width: 95vw; overflow-x: auto;
         }
         .slot {
-            width: 34px; height: 34px; border: 3px solid #555; background: #8B8B8B;
-            display: flex; justify-content: center; align-items: center; cursor: pointer; position: relative;
-            box-shadow: inset 2px 2px #AAA, inset -2px -2px #333; flex-shrink: 0;
+            width: 40px; height: 40px;
+            background: rgba(255,255,255,0.07);
+            border: 1.5px solid rgba(255,255,255,0.15);
+            border-radius: 6px;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; position: relative; flex-shrink: 0;
+            transition: background 0.12s, border-color 0.12s, transform 0.1s;
         }
-        .slot.active { border-color: #FFF; background: #AAA; z-index: 2; transform: scale(1.05); box-shadow: 0 0 8px white; }
-        .slot canvas { width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
-        .slot-count { position: absolute; bottom: 2px; right: 2px; font-size: 8px; color: #fff; text-shadow: 1px 1px #000; pointer-events: none; }
-        
-        #inv-btn {
-            width: 34px; height: 34px; background: #8B8B8B; border: 3px solid #111; color: #fff;
-            display: flex; align-items: center; justify-content: center; font-size: 7px;
-            margin-right: 3px; cursor: pointer; text-shadow: 1px 1px #000;
-            box-shadow: inset 2px 2px #AAA, inset -2px -2px #333; flex-shrink: 0;
+        .slot:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.35); }
+        .slot.active {
+            background: rgba(255,255,255,0.22);
+            border-color: rgba(255,255,255,0.9);
+            transform: scale(1.08);
+            box-shadow: 0 0 12px rgba(255,255,255,0.3), inset 0 0 6px rgba(255,255,255,0.1);
+        }
+        .slot canvas { width: 26px; height: 26px; image-rendering: pixelated; pointer-events: none; }
+        .slot-count {
+            position: absolute; bottom: 2px; right: 3px;
+            font-size: 7px; color: #fff; text-shadow: 1px 1px 2px #000, -1px -1px 2px #000;
+            pointer-events: none;
         }
 
+        #inv-btn {
+            width: 40px; height: 40px;
+            background: rgba(255,255,255,0.1);
+            border: 1.5px solid rgba(255,255,255,0.2); border-radius: 6px;
+            color: #fff; display: flex; align-items: center; justify-content: center;
+            font-size: 6px; margin-right: 2px; cursor: pointer;
+            transition: background 0.12s; flex-shrink: 0;
+        }
+        #inv-btn:hover { background: rgba(255,255,255,0.22); }
+
+        /* ══════════════════════════════
+           REACTION BAR
+        ══════════════════════════════ */
+        #reaction-bar {
+            position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%);
+            display: none; gap: 4px; pointer-events: auto; z-index: 60;
+        }
+        #reaction-bar.visible { display: flex; }
+        .reaction-btn {
+            width: 36px; height: 36px;
+            background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(255,255,255,0.18); border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 17px; cursor: pointer;
+            transition: transform 0.12s, background 0.12s;
+        }
+        .reaction-btn:hover  { background: rgba(255,255,255,0.18); }
+        .reaction-btn:active { transform: scale(0.82); }
+
+        /* ══════════════════════════════
+           CHAT PANEL
+        ══════════════════════════════ */
+        #chat-container {
+            position: fixed; bottom: 64px; left: 14px;
+            width: 270px; height: 160px;
+            display: none; flex-direction: column;
+            z-index: 2500; pointer-events: auto;
+            border-radius: 12px; overflow: hidden;
+            border: 1.5px solid rgba(255,255,255,0.14);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        #chat-header {
+            background: rgba(0,0,0,0.6);
+            color: #aaa; padding: 6px 10px; font-size: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            display: flex; align-items: center; gap: 5px;
+        }
+        #chat-header::before { content: '●'; color: #2ecc71; font-size: 8px; }
+        #user-display-id { color: #2ecc71; }
+        #chat-log {
+            flex-grow: 1; background: rgba(0,0,0,0.45);
+            color: #ddd; padding: 8px 10px; font-size: 6.5px;
+            overflow-y: auto; display: flex; flex-direction: column;
+            gap: 3px; line-height: 1.6;
+            scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent;
+        }
+        #chat-log::-webkit-scrollbar { width: 3px; }
+        #chat-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+        #chat-input-wrapper {
+            display: flex; background: rgba(0,0,0,0.6);
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        #chat-input {
+            flex-grow: 1; background: transparent; border: none; color: #fff;
+            padding: 8px 10px; font-family: 'Press Start 2P'; font-size: 6.5px;
+            outline: none;
+        }
+        #chat-input::placeholder { color: rgba(255,255,255,0.3); }
+        #chat-send-btn {
+            background: rgba(46,204,113,0.25); color: #2ecc71;
+            border: none; border-left: 1px solid rgba(255,255,255,0.1);
+            padding: 0 12px; cursor: pointer;
+            font-family: 'Press Start 2P'; font-size: 7px;
+            transition: background 0.12s;
+        }
+        #chat-send-btn:hover { background: rgba(46,204,113,0.45); }
+
+        /* ══════════════════════════════
+           TOUCH CONTROLS
+        ══════════════════════════════ */
         .ctrl { position: absolute; pointer-events: auto; z-index: 50; display: none; }
-        #joy-zone { bottom: 20px; left: 15px; width: 110px; height: 110px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; }
-        #joy-nub { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; background: #fff; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0.4; pointer-events: none; }
-        
+        #joy-zone {
+            bottom: 22px; left: 18px; width: 108px; height: 108px;
+            background: rgba(255,255,255,0.06); border: 2px solid rgba(255,255,255,0.15);
+            border-radius: 50%;
+        }
+        #joy-nub {
+            position: absolute; top: 50%; left: 50%; width: 38px; height: 38px;
+            background: rgba(255,255,255,0.35); border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none;
+            box-shadow: 0 0 12px rgba(255,255,255,0.2);
+        }
         #flight-controls {
-            position: absolute; bottom: 20px; right: 15px;
-            display: flex; flex-direction: column; gap: 8px; align-items: center;
+            position: absolute; bottom: 22px; right: 18px;
+            display: flex; flex-direction: column; gap: 6px; align-items: center;
         }
         .action-btn {
-            width: 50px; height: 50px; border-radius: 50%;
-            background: rgba(0,0,0,0.3); border: 2px solid rgba(255,255,255,0.4);
+            width: 48px; height: 48px; border-radius: 50%;
+            background: rgba(0,0,0,0.45); border: 1.5px solid rgba(255,255,255,0.3);
             display: flex; align-items: center; justify-content: center;
-            backdrop-filter: blur(2px);
+            backdrop-filter: blur(6px);
         }
-        .action-btn svg { width: 24px; height: 24px; fill: white; opacity: 0.8; }
+        .action-btn svg { width: 22px; height: 22px; fill: white; opacity: 0.85; }
 
-        #chat-container {
-            position: fixed; top: 95px; left: 10px; width: 240px; height: 140px;
-            display: none; flex-direction: column; z-index: 2500; pointer-events: auto;
+        /* ══════════════════════════════
+           ACTION HINT
+        ══════════════════════════════ */
+        #action-hint {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, 36px);
+            color: rgba(255,255,255,0.9); font-size: 7px; letter-spacing: 1px;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.15); border-radius: 20px;
+            padding: 6px 14px; pointer-events: none; z-index: 50;
+            display: none; white-space: nowrap;
         }
-        #chat-header { background: rgba(0,0,0,0.8); color: #0f0; padding: 4px; font-size: 6px; border-bottom: 2px solid #333; }
-        #chat-log { flex-grow: 1; background: rgba(0,0,0,0.6); color: #fff; padding: 6px; font-size: 7px; overflow-y: auto; display: flex; flex-direction: column-reverse; }
-        #chat-input-wrapper { display: flex; background: rgba(0,0,0,0.8); border: 2px solid #555; }
-        #chat-input { flex-grow: 1; background: transparent; border: none; color: #fff; padding: 8px; font-family: 'Press Start 2P'; font-size: 7px; outline: none; width: 50%; }
-        #chat-send-btn { background: #555; color: #fff; border: none; padding: 0 8px; cursor: pointer; font-family: 'Press Start 2P'; font-size: 7px; }
 
-        #inventory-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; pointer-events: auto; }
-        #inventory-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; background: #8B8B8B; padding: 15px; border: 4px solid #111; max-height: 70vh; overflow-y: auto; }
-        #shop-overlay { position: fixed; inset: 0; z-index: 2000; pointer-events: auto; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); }
-        
-        #pause-menu { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 3000; pointer-events: auto; }
-        .menu-card { background: #8B8B8B; padding: 20px; border: 4px solid #000; display: flex; flex-direction: column; gap: 10px; width: 200px; }
-        .menu-btn { padding: 12px; background: #777; color: #fff; border: 3px solid #000; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer; text-align: center; }
+        /* ══════════════════════════════
+           PAUSE MENU
+        ══════════════════════════════ */
+        #pause-menu {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(10px);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 3000; pointer-events: auto;
+        }
+        .menu-card {
+            background: rgba(20,20,28,0.95);
+            border: 1.5px solid rgba(255,255,255,0.14);
+            border-radius: 14px;
+            padding: 24px 20px; display: flex; flex-direction: column; gap: 10px;
+            width: 220px; box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+        .menu-card-title {
+            text-align: center; color: #fff; font-size: 11px;
+            margin-bottom: 6px; letter-spacing: 3px;
+            text-shadow: 0 0 20px rgba(255,255,255,0.4);
+        }
+        .menu-btn {
+            padding: 13px 12px; background: rgba(255,255,255,0.07);
+            color: #ddd; border: 1.5px solid rgba(255,255,255,0.14);
+            border-radius: 8px; font-family: 'Press Start 2P'; font-size: 8px;
+            cursor: pointer; text-align: center; letter-spacing: 1px;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+        .menu-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.35); color: #fff; }
+        .menu-btn.danger { border-color: rgba(231,76,60,0.4); color: #e74c3c; }
+        .menu-btn.danger:hover { background: rgba(231,76,60,0.2); border-color: #e74c3c; }
 
-        /* ── LOADING / MAIN MENU ── */
+        /* ══════════════════════════════
+           INVENTORY OVERLAY
+        ══════════════════════════════ */
+        #inventory-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.75); backdrop-filter: blur(10px);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 2000; pointer-events: auto; gap: 12px;
+        }
+        #inventory-overlay > div:first-child {
+            color: #fff; font-size: 10px; letter-spacing: 3px;
+            text-shadow: 0 0 20px rgba(255,255,255,0.3);
+        }
+        #inventory-grid {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+            background: rgba(20,20,28,0.9); padding: 14px;
+            border: 1.5px solid rgba(255,255,255,0.12); border-radius: 12px;
+            max-height: 65vh; overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        #del-mode-btn {
+            background: rgba(163,51,51,0.35); border: 1.5px solid rgba(231,76,60,0.45);
+            border-radius: 8px; color: #e74c3c; cursor: pointer;
+            font-family: 'Press Start 2P'; font-size: 7px; padding: 9px 14px;
+            width: 100%; letter-spacing: 1px; transition: background 0.15s;
+        }
+        #del-mode-btn:hover { background: rgba(163,51,51,0.55); }
+
+        /* ══════════════════════════════
+           SHOP PANEL
+        ══════════════════════════════ */
+        #shop-overlay {
+            position: fixed; inset: 0; z-index: 2000; pointer-events: auto;
+            display: none; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(10px);
+        }
+        #shop-panel {
+            position: relative; width: min(540px, 96vw);
+            background: rgba(18,12,4,0.97);
+            border: 1.5px solid rgba(218,165,32,0.3);
+            border-radius: 14px;
+            box-shadow: 0 0 0 1px rgba(218,165,32,0.08), 0 24px 80px rgba(0,0,0,0.7);
+            display: flex; flex-direction: column; max-height: 92vh;
+        }
+        #shop-header {
+            background: linear-gradient(90deg, rgba(42,22,0,0.8), rgba(74,44,0,0.9) 40%, rgba(74,44,0,0.9) 60%, rgba(42,22,0,0.8));
+            border-bottom: 1.5px solid rgba(218,165,32,0.2);
+            border-radius: 12px 12px 0 0;
+            padding: 13px 18px; display: flex; align-items: center; justify-content: space-between;
+        }
+        #shop-title-wrap { display: flex; align-items: center; gap: 10px; }
+        #shop-icon { font-size: 18px; filter: drop-shadow(0 0 8px #DAA520); }
+        #shop-title-text { font-size: 11px; color: #FFD700; text-shadow: 0 0 14px #b8860b, 2px 2px 0 #000; letter-spacing: 2px; }
+        #shop-live-coins { font-size: 7px; color: #FFD700; background: rgba(0,0,0,0.4); border: 1px solid rgba(218,165,32,0.3); border-radius: 20px; padding: 5px 12px; }
+        #shop-tab-bar { display: flex; padding: 10px 14px 0; gap: 2px; border-bottom: 1.5px solid rgba(42,22,0,0.8); }
+        .shop-tab { font-size: 7px; padding: 7px 13px; cursor: pointer; color: #555; background: transparent; border: 1.5px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; letter-spacing: 1px; transition: color .15s, background .15s; position: relative; top: 2px; }
+        .shop-tab:hover { color: #aaa; }
+        .shop-tab.active { color: #FFD700; background: rgba(20,14,5,0.9); border-color: rgba(218,165,32,0.25); border-bottom-color: rgba(20,14,5,0.9); }
+        #shop-mode-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px 6px; }
+        #shop-mode-btn { font-size: 7px; padding: 6px 14px; cursor: pointer; border-radius: 20px; letter-spacing: 1px; border: 1.5px solid; transition: all .15s; background: rgba(46,204,113,0.2); color: #2ecc71; border-color: rgba(46,204,113,0.4); font-family: 'Press Start 2P'; }
+        #shop-mode-btn.sell-mode { background: rgba(231,76,60,0.2); color: #e74c3c; border-color: rgba(231,76,60,0.4); }
+        #shop-hint { font-size: 5px; color: #444; }
+        #shop-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; padding: 8px 14px 12px; max-height: 48vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(218,165,32,0.2) transparent; }
+        #shop-grid::-webkit-scrollbar { width: 4px; }
+        #shop-grid::-webkit-scrollbar-thumb { background: rgba(218,165,32,0.2); border-radius: 2px; }
+        .shop-item { background: rgba(255,255,255,0.04); border: 1.5px solid rgba(255,255,255,0.07); border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; align-items: center; padding: 8px 4px 6px; gap: 4px; transition: all .15s; position: relative; overflow: hidden; min-height: 72px; }
+        .shop-item:hover { border-color: rgba(218,165,32,0.5); background: rgba(218,165,32,0.08); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(218,165,32,0.15); }
+        .shop-item:active { transform: translateY(0); }
+        .shop-item canvas { image-rendering: pixelated; border-radius: 4px; }
+        .shop-name { font-size: 5px; color: #bbb; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; }
+        .shop-price { font-size: 6px; color: #FFD700; text-align: center; }
+        #shop-footer { display: flex; justify-content: center; padding: 4px 0 0; border-top: 1px solid rgba(255,255,255,0.06); }
+        #close-shop { font-size: 8px; background: transparent; border: 1.5px solid rgba(255,255,255,0.12); border-radius: 8px; color: #666; padding: 9px 28px; cursor: pointer; letter-spacing: 2px; transition: all .15s; margin-top: 12px; font-family: 'Press Start 2P'; }
+        #close-shop:hover { border-color: rgba(218,165,32,0.5); color: #FFD700; }
+
+        /* ══════════════════════════════
+           CHEST OVERLAY
+        ══════════════════════════════ */
+        #chest-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(10px);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 2100; pointer-events: auto; gap: 6px;
+        }
+        #chest-title { color: #DAA520; font-size: 10px; text-shadow: 0 0 16px rgba(218,165,32,0.5); letter-spacing: 2px; }
+        #chest-subtitle { color: #555; font-size: 6px; margin-bottom: 4px; }
+        #chest-grid {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+            background: rgba(30,18,6,0.95); padding: 12px;
+            border: 1.5px solid rgba(218,165,32,0.2); border-top: 6px solid rgba(218,165,32,0.3);
+            border-radius: 0 0 8px 8px;
+        }
+        #chest-player-label { color: #555; font-size: 6px; margin: 8px 0 4px; letter-spacing: 1px; }
+        #chest-player-grid {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+            background: rgba(20,20,28,0.9); padding: 10px;
+            border: 1.5px solid rgba(255,255,255,0.1); border-radius: 8px;
+        }
+        .chest-slot {
+            width: 36px; height: 36px; background: rgba(218,165,32,0.06);
+            border: 1.5px solid rgba(218,165,32,0.2); border-radius: 5px;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; position: relative; flex-shrink: 0;
+            transition: border-color 0.12s, background 0.12s;
+        }
+        .chest-slot:hover { border-color: #FFD700; background: rgba(218,165,32,0.12); }
+        .chest-slot canvas { width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
+        .chest-slot .slot-count { position: absolute; bottom: 2px; right: 3px; font-size: 7px; color: #fff; text-shadow: 1px 1px 2px #000; }
+
+        /* ══════════════════════════════
+           ONLINE PLAYERS PANEL
+        ══════════════════════════════ */
+        #players-panel {
+            position: fixed; top: 0; right: -230px; width: 218px; height: 100%;
+            background: rgba(8,16,10,0.96); backdrop-filter: blur(12px);
+            border-left: 1.5px solid rgba(46,204,113,0.2);
+            display: flex; flex-direction: column;
+            z-index: 2400; pointer-events: auto;
+            transition: right 0.24s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+        }
+        #players-panel.open { right: 0; }
+        #players-panel-title {
+            font-size: 8px; color: #2ecc71; padding: 16px 14px 8px;
+            border-bottom: 1px solid rgba(46,204,113,0.12); text-align: center;
+            letter-spacing: 3px; text-shadow: 0 0 14px rgba(46,204,113,0.4);
+        }
+        #players-online-count { font-size: 6px; color: rgba(46,204,113,0.6); text-align: center; padding: 6px 0 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        #players-list { flex: 1; overflow-y: auto; padding: 8px 8px; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin; }
+        .player-entry {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 10px; background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+            transition: background 0.12s;
+        }
+        .player-entry:hover { background: rgba(255,255,255,0.06); }
+        .player-entry.is-self { border-color: rgba(46,204,113,0.25); background: rgba(46,204,113,0.06); }
+        .player-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 6px currentColor; }
+        .player-entry-info { flex: 1; overflow: hidden; }
+        .player-entry-name { font-size: 6px; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .player-entry-dist { font-size: 5px; color: #445; margin-top: 3px; }
+        #close-players-btn {
+            margin: 8px 10px 14px; font-size: 7px; color: #445; padding: 8px;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px; cursor: pointer; text-align: center; letter-spacing: 1px;
+            transition: color 0.15s, border-color 0.15s; font-family: 'Press Start 2P';
+        }
+        #close-players-btn:hover { color: #aaa; border-color: rgba(255,255,255,0.2); }
+
+        /* ══════════════════════════════
+           TOAST NOTIFICATIONS
+        ══════════════════════════════ */
+        #toast-container {
+            position: fixed; top: 58px; left: 50%; transform: translateX(-50%);
+            display: flex; flex-direction: column; gap: 5px; z-index: 9000;
+            pointer-events: none; align-items: center;
+        }
+        .toast {
+            font-size: 7px; padding: 7px 18px;
+            background: rgba(0,0,0,0.75); backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(255,255,255,0.15); border-radius: 20px;
+            color: #fff; white-space: nowrap; letter-spacing: 1px;
+            animation: toastIn 0.22s ease forwards, toastOut 0.3s ease 2.5s forwards;
+        }
+        @keyframes toastIn  { from { opacity:0; transform:translateY(-8px) scale(0.95); } to { opacity:1; transform:translateY(0) scale(1); } }
+        @keyframes toastOut { to   { opacity:0; transform:translateY(-8px) scale(0.95); } }
+
+        /* ══════════════════════════════
+           LOADING / MAIN MENU
+        ══════════════════════════════ */
         #loading {
-            position: fixed; inset: 0; background: #0a0a0f;
+            position: fixed; inset: 0; background: #050508;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 9999; overflow: hidden;
         }
-        #loading-canvas {
-            position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
-        }
+        #loading-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
         #menu-card {
             position: relative; z-index: 2;
             display: flex; flex-direction: column; align-items: center; gap: 0;
             animation: menuFadeIn 0.8s ease forwards;
         }
         @keyframes menuFadeIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-
         #game-title {
-            font-size: clamp(18px, 5vw, 32px);
-            color: #fff;
-            text-shadow: 0 0 20px #4af, 3px 3px 0 #000;
-            letter-spacing: 4px;
-            margin-bottom: 4px;
-            animation: titlePulse 3s ease-in-out infinite;
+            font-size: clamp(18px, 5vw, 32px); color: #fff;
+            text-shadow: 0 0 20px #4af, 3px 3px 0 #000; letter-spacing: 4px;
+            margin-bottom: 4px; animation: titlePulse 3s ease-in-out infinite;
         }
         @keyframes titlePulse {
             0%,100% { text-shadow: 0 0 20px #4af, 3px 3px 0 #000; }
-            50% { text-shadow: 0 0 40px #8df, 0 0 80px #4af, 3px 3px 0 #000; }
+            50%      { text-shadow: 0 0 40px #8df, 0 0 80px #4af, 3px 3px 0 #000; }
         }
-        #game-subtitle {
-            font-size: clamp(6px, 1.5vw, 9px); color: #4af; letter-spacing: 6px;
-            margin-bottom: 40px; opacity: 0.8;
-        }
-
-        #progress-wrap {
-            width: min(320px, 80vw);
-            background: rgba(255,255,255,0.05);
-            border: 2px solid #333; padding: 3px; margin-bottom: 10px;
-        }
-        #progress-bar {
-            height: 12px; width: 0%; background: linear-gradient(90deg, #2af, #07f);
-            transition: width 0.4s ease;
-            box-shadow: 0 0 10px #4af;
-        }
-        #loading-text {
-            font-size: clamp(6px, 1.5vw, 8px); color: #888; margin-bottom: 30px;
-            min-height: 16px; text-align: center; letter-spacing: 2px;
-        }
-
+        #game-subtitle { font-size: clamp(6px, 1.5vw, 9px); color: #4af; letter-spacing: 6px; margin-bottom: 40px; opacity: 0.8; }
+        #progress-wrap { width: min(320px, 80vw); background: rgba(255,255,255,0.05); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 3px; margin-bottom: 10px; overflow: hidden; }
+        #progress-bar { height: 10px; width: 0%; background: linear-gradient(90deg, #2af, #07f); transition: width 0.4s ease; border-radius: 20px; box-shadow: 0 0 10px #4af; }
+        #loading-text { font-size: clamp(6px, 1.5vw, 8px); color: #555; margin-bottom: 30px; min-height: 16px; text-align: center; letter-spacing: 2px; }
         #start-btn {
             padding: 14px 36px; font-family: 'Press Start 2P'; font-size: clamp(9px, 2vw, 12px);
             cursor: pointer; background: linear-gradient(135deg, #1a6, #0a4);
-            color: #fff; border: 3px solid #0f0;
-            box-shadow: 0 0 20px #0f08, 0 4px 0 #063;
+            color: #fff; border: 2px solid #0f0; border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0,255,0,0.3), 0 4px 0 #063;
             display: none; margin-bottom: 20px;
             animation: btnGlow 2s ease-in-out infinite;
             transition: transform 0.1s, box-shadow 0.1s;
         }
-        #start-btn:hover { transform: translateY(-2px); box-shadow: 0 0 30px #0f0a, 0 6px 0 #063; }
-        #start-btn:active { transform: translateY(2px); box-shadow: 0 0 10px #0f08, 0 2px 0 #063; }
-        @keyframes btnGlow {
-            0%,100% { box-shadow: 0 0 20px #0f08, 0 4px 0 #063; }
-            50% { box-shadow: 0 0 40px #0f0b, 0 4px 0 #063; }
-        }
+        #start-btn:hover  { transform: translateY(-2px); box-shadow: 0 0 30px rgba(0,255,0,0.4), 0 6px 0 #063; }
+        #start-btn:active { transform: translateY(2px); box-shadow: 0 0 10px rgba(0,255,0,0.2), 0 2px 0 #063; }
+        @keyframes btnGlow { 0%,100% { box-shadow: 0 0 20px rgba(0,255,0,0.3), 0 4px 0 #063; } 50% { box-shadow: 0 0 40px rgba(0,255,0,0.5), 0 4px 0 #063; } }
 
+        /* ══════════════════════════════
+           JOIN LOADING SCREEN
+        ══════════════════════════════ */
         #join-loading-screen {
-            position: fixed; inset: 0; background: #0a0a0f;
+            position: fixed; inset: 0; background: #050508;
             display: none; flex-direction: column; align-items: center; justify-content: center;
             z-index: 9998; gap: 20px;
         }
         #join-loading-screen.visible { display: flex; }
         #join-title { font-size: clamp(10px, 2.5vw, 16px); color: #4af; text-shadow: 0 0 15px #4af; letter-spacing: 4px; }
-        #join-progress-wrap { width: min(360px, 80vw); background: rgba(255,255,255,0.05); border: 2px solid #333; padding: 3px; }
-        #join-progress-bar { height: 14px; width: 0%; background: linear-gradient(90deg, #f80, #fa0); transition: width 0.5s ease; box-shadow: 0 0 10px #f80; }
-        #join-status { font-size: clamp(6px, 1.5vw, 8px); color: #aaa; letter-spacing: 2px; text-align: center; min-height: 20px; }
-        #join-step-list { display: flex; flex-direction: column; gap: 6px; width: min(320px, 75vw); }
-        .join-step { font-size: clamp(5px, 1.2vw, 7px); color: #555; display: flex; align-items: center; gap: 8px; transition: color 0.3s; }
-        .join-step.done { color: #4f4; }
+        #join-progress-wrap { width: min(360px, 80vw); background: rgba(255,255,255,0.05); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 3px; overflow: hidden; }
+        #join-progress-bar { height: 12px; width: 0%; background: linear-gradient(90deg, #f80, #fa0); transition: width 0.5s ease; border-radius: 20px; box-shadow: 0 0 10px #f80; }
+        #join-status { font-size: clamp(6px, 1.5vw, 8px); color: #666; letter-spacing: 2px; text-align: center; min-height: 20px; }
+        #join-step-list { display: flex; flex-direction: column; gap: 8px; width: min(320px, 75vw); }
+        .join-step { font-size: clamp(5px, 1.2vw, 7px); color: #333; display: flex; align-items: center; gap: 10px; transition: color 0.3s; }
+        .join-step.done { color: #2ecc71; }
         .join-step.active { color: #fa0; }
-        .join-step-icon { width: 10px; height: 10px; border: 2px solid currentColor; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; }
+        .join-step-icon { width: 10px; height: 10px; border: 2px solid currentColor; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; border-radius: 50%; }
         .join-step.done .join-step-icon::after { content: '✓'; }
-        .join-step.active .join-step-icon { animation: stepSpin 0.8s linear infinite; border-top-color: transparent; border-radius: 50%; }
+        .join-step.active .join-step-icon { animation: stepSpin 0.8s linear infinite; border-top-color: transparent; }
         @keyframes stepSpin { to { transform: rotate(360deg); } }
-
-        /* duplicate #start-btn rule removed — the styled version above is used */
-        
-        #del-mode-btn { background: #a33; margin-top: 5px; width: 100%; font-size: 8px; padding: 8px; border: 2px solid #000; color: white; cursor: pointer; }
-        
-        /* ══ SHOP PANEL ══ */
-        #shop-panel {
-            position: relative; width: min(540px, 96vw);
-            background: linear-gradient(175deg, #1c1308 0%, #100b04 100%);
-            border: 2px solid #6b4410;
-            box-shadow: 0 0 0 1px #3a2200, 0 0 60px rgba(218,165,32,0.12), inset 0 1px 0 rgba(255,210,60,0.06);
-            border-radius: 4px; display: flex; flex-direction: column; max-height: 92vh;
-        }
-        #shop-header {
-            background: linear-gradient(90deg, #2a1600, #4a2c00 30%, #4a2c00 70%, #2a1600);
-            border-bottom: 2px solid #6b4410; border-radius: 2px 2px 0 0;
-            padding: 11px 18px; display: flex; align-items: center; justify-content: space-between;
-        }
-        #shop-title-wrap { display: flex; align-items: center; gap: 10px; }
-        #shop-icon { font-size: 18px; filter: drop-shadow(0 0 8px #DAA520); }
-        #shop-title-text { font-family:'Press Start 2P'; font-size:11px; color:#FFD700; text-shadow:0 0 14px #b8860b,2px 2px 0 #000; letter-spacing:2px; }
-        #shop-live-coins { font-family:'Press Start 2P'; font-size:7px; color:#FFD700; background:rgba(0,0,0,0.45); border:1px solid #4a2c00; border-radius:2px; padding:5px 10px; text-shadow:0 0 8px #DAA520; }
-        #shop-tab-bar { display:flex; padding:10px 14px 0; gap:2px; border-bottom:2px solid #2a1600; }
-        .shop-tab { font-family:'Press Start 2P'; font-size:7px; padding:7px 13px; cursor:pointer; color:#666; background:transparent; border:2px solid transparent; border-bottom:none; border-radius:3px 3px 0 0; letter-spacing:1px; transition:color .15s,background .15s; position:relative; top:2px; }
-        .shop-tab:hover { color:#bbb; background:rgba(255,255,255,0.03); }
-        .shop-tab.active { color:#FFD700; background:#140e05; border-color:#6b4410; border-bottom-color:#140e05; text-shadow:0 0 10px #DAA52066; }
-        #shop-mode-row { display:flex; align-items:center; gap:10px; padding:10px 16px 6px; }
-        #shop-mode-btn { font-family:'Press Start 2P'; font-size:7px; padding:6px 14px; cursor:pointer; border-radius:2px; letter-spacing:1px; border:2px solid; transition:all .15s; background:#2ecc71; color:#000; border-color:#2ecc71; }
-        #shop-mode-btn.sell-mode { background:#e74c3c; color:#fff; border-color:#e74c3c; }
-        #shop-hint { font-family:'Press Start 2P'; font-size:5px; color:#444; }
-        #shop-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; padding:8px 14px 12px; max-height:48vh; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#4a2c00 #0d0900; }
-        #shop-grid::-webkit-scrollbar { width:4px; }
-        #shop-grid::-webkit-scrollbar-track { background:#0d0900; }
-        #shop-grid::-webkit-scrollbar-thumb { background:#4a2c00; border-radius:2px; }
-        .shop-item { background:linear-gradient(160deg,#1e1610,#120d07); border:2px solid #2e1e08; border-radius:3px; cursor:pointer; display:flex; flex-direction:column; align-items:center; padding:8px 4px 6px; gap:4px; transition:all .15s; position:relative; overflow:hidden; min-height:72px; }
-        .shop-item::after { content:''; position:absolute; inset:0; background:linear-gradient(160deg,rgba(255,255,255,0.04) 0%,transparent 60%); pointer-events:none; }
-        .shop-item:hover { border-color:#DAA520; background:linear-gradient(160deg,#2a1e10,#1a1008); box-shadow:0 0 14px rgba(218,165,32,0.22),inset 0 0 8px rgba(218,165,32,0.04); transform:translateY(-1px); }
-        .shop-item:active { transform:translateY(1px); box-shadow:none; }
-        .shop-item canvas { image-rendering:pixelated; border:1px solid #2e1e08; border-radius:2px; }
-        .shop-name { font-family:'Press Start 2P'; font-size:5px; color:#ccc; text-align:center; width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.5; }
-        .shop-price { font-family:'Press Start 2P'; font-size:6px; color:#FFD700; text-shadow:0 0 6px #DAA52077; text-align:center; }
-        #shop-footer { display:flex; justify-content:center; padding:4px 0 0; border-top:1px solid #2a1600; margin-top:2px; }
-        #close-shop { font-family:'Press Start 2P'; font-size:8px; background:#140e05; border:2px solid #4a2c00; color:#666; padding:9px 28px; cursor:pointer; border-radius:2px; letter-spacing:2px; transition:all .15s; margin-top:12px; }
-        #close-shop:hover { border-color:#DAA520; color:#FFD700; background:#1e1408; box-shadow:0 0 12px rgba(218,165,32,0.18); }
-
-        /* ── CHEST OVERLAY ── */
-        #chest-overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
-            display: none; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 2100; pointer-events: auto;
-        }
-        #chest-title {
-            color: #DAA520; font-size: 10px; margin-bottom: 8px;
-            text-shadow: 2px 2px #000;
-        }
-        #chest-subtitle { color: #888; font-size: 6px; margin-bottom: 10px; }
-        #chest-grid {
-            display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
-            background: #6B4F2A; padding: 12px; border: 4px solid #3a2a10;
-            border-top: 8px solid #8B6914; /* lid look */
-        }
-        #chest-player-label { color: #aaa; font-size: 6px; margin: 10px 0 6px; }
-        #chest-player-grid {
-            display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
-            background: #8B8B8B; padding: 10px; border: 4px solid #111;
-        }
-        .chest-slot {
-            width: 34px; height: 34px; border: 3px solid #3a2a10; background: #5a3a18;
-            display: flex; justify-content: center; align-items: center;
-            cursor: pointer; position: relative;
-            box-shadow: inset 2px 2px #7a5a28, inset -2px -2px #2a1a08;
-            flex-shrink: 0;
-        }
-        .chest-slot:hover { border-color: #FFD700; }
-        .chest-slot canvas { width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
-        .chest-slot .slot-count { position: absolute; bottom: 2px; right: 2px; font-size: 8px; color: #fff; text-shadow: 1px 1px #000; }
-
-        /* ── DOOR ACTION HINT ── */
-        #action-hint {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, 30px);
-            color: rgba(255,255,255,0.8); font-size: 7px;
-            background: rgba(0,0,0,0.5); padding: 4px 10px;
-            pointer-events: none; z-index: 50;
-            display: none; white-space: nowrap;
-        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -304,11 +536,28 @@
         <div id="break-progress"></div>
         <div id="action-hint"></div>
         
-        <div id="pause-btn" class="corner-btn ctrl">||</div>
-        <div id="chat-toggle-btn" class="corner-btn ctrl">MSG</div>
-        <div id="fs-btn" class="corner-btn ctrl">FULL</div>
-        <div id="cam-btn" class="corner-btn ctrl">POV</div>
-        <div id="shop-btn" class="corner-btn ctrl">SHOP</div>
+        <!-- Left HUD group: game controls -->
+        <div id="hud-left">
+            <div id="pause-btn" class="hud-btn"><span class="hud-icon">⏸</span></div>
+            <div id="chat-toggle-btn" class="hud-btn"><span class="hud-icon">💬</span></div>
+            <div id="shop-btn" class="hud-btn"><span class="hud-icon">🏪</span> SHOP</div>
+        </div>
+
+        <!-- Right HUD group: view + social -->
+        <div id="hud-right">
+            <div id="cam-btn" class="hud-btn"><span class="hud-icon">📷</span></div>
+            <div id="fs-btn" class="hud-btn"><span class="hud-icon">⛶</span></div>
+            <div id="players-btn" class="hud-btn"><span class="hud-icon">👥</span> WHO</div>
+        </div>
+
+        <!-- Quick reaction bar -->
+        <div id="reaction-bar">
+            <div class="reaction-btn" data-react="👋">👋</div>
+            <div class="reaction-btn" data-react="❤️">❤️</div>
+            <div class="reaction-btn" data-react="😂">😂</div>
+            <div class="reaction-btn" data-react="🎉">🎉</div>
+            <div class="reaction-btn" data-react="👍">👍</div>
+        </div>
 
         <div id="chat-container">
             <div id="chat-header">ID: <span id="user-display-id">...</span></div>
@@ -338,11 +587,22 @@
         </div>
     </div>
 
+    <!-- Toast notifications -->
+    <div id="toast-container"></div>
+
+    <!-- Online Players Panel -->
+    <div id="players-panel">
+        <div id="players-panel-title">🌍 ONLINE</div>
+        <div id="players-online-count">0 players</div>
+        <div id="players-list"></div>
+        <div id="close-players-btn">✕ CLOSE</div>
+    </div>
+
     <div id="pause-menu">
         <div class="menu-card">
-            <div style="text-align: center; margin-bottom: 5px; color: #fff; text-shadow: 2px 2px #000; font-size: 10px;">PAUSED</div>
-            <div id="resume-btn" class="menu-btn">RESUME</div>
-            <div id="quit-btn" class="menu-btn" style="background: #a33;">QUIT</div>
+            <div class="menu-card-title">PAUSED</div>
+            <div id="resume-btn" class="menu-btn">▶ RESUME</div>
+            <div id="quit-btn" class="menu-btn danger">✕ QUIT</div>
         </div>
     </div>
 
@@ -638,6 +898,15 @@
         let mixer, actions = {}, activeAction;
         let sharedChunkMaterial = null;
 
+        // ── SOCIAL ──
+        const PLAYER_COLORS = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63','#00bcd4','#8bc34a'];
+        function getPlayerColor(uid) {
+            let h = 0; for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
+            return PLAYER_COLORS[h % PLAYER_COLORS.length];
+        }
+        // chatBubbles: pid → { sprite, timer }
+        const chatBubbles = {};
+
         // ── DOOR & CHEST STATE ──
         const blockStates  = {};  // "x,y,z" → { open: bool, facing: 0-3 }
         const doorMeshes   = {};  // "x,y,z" → THREE.Mesh (open-door panel)
@@ -708,7 +977,123 @@
             draw();
         })();
 
-        // ── Main menu progress bar ──
+        // ── TOAST ──
+        function showToast(msg, color = '#fff', borderColor = '#555') {
+            const wrap = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.style.color = color;
+            el.style.borderColor = borderColor;
+            el.textContent = msg;
+            wrap.appendChild(el);
+            setTimeout(() => el.remove(), 3000);
+        }
+
+        // ── PLAYERS PANEL ──
+        function renderPlayersList() {
+            const list = document.getElementById('players-list');
+            const countEl = document.getElementById('players-online-count');
+            if (!list) return;
+            list.innerHTML = '';
+
+            // Self entry
+            const selfEntry = document.createElement('div');
+            selfEntry.className = 'player-entry is-self';
+            const selfDot = document.createElement('div');
+            selfDot.className = 'player-dot';
+            selfDot.style.background = getPlayerColor(userId);
+            selfDot.style.color = getPlayerColor(userId);
+            const selfInfo = document.createElement('div');
+            selfInfo.className = 'player-entry-info';
+            selfInfo.innerHTML = `<div class="player-entry-name">${userDisplayName} (you)</div><div class="player-entry-dist">🪙 ${coins}</div>`;
+            selfEntry.appendChild(selfDot);
+            selfEntry.appendChild(selfInfo);
+            list.appendChild(selfEntry);
+
+            const pids = Object.keys(otherPlayers);
+            pids.forEach(pid => {
+                const p = otherPlayers[pid];
+                const dist = playerGroup ? Math.round(playerGroup.position.distanceTo(p.group.position)) : '?';
+                const name = (p.data && p.data.name) || pid.substr(0, 8);
+                const pcoins = (p.data && p.data.coins != null) ? p.data.coins : '?';
+
+                const entry = document.createElement('div');
+                entry.className = 'player-entry';
+                const dot = document.createElement('div');
+                dot.className = 'player-dot';
+                dot.style.background = getPlayerColor(pid);
+                dot.style.color = getPlayerColor(pid);
+                const info = document.createElement('div');
+                info.className = 'player-entry-info';
+                info.innerHTML = `<div class="player-entry-name">${name}</div><div class="player-entry-dist">${dist}m away · 🪙 ${pcoins}</div>`;
+                entry.appendChild(dot);
+                entry.appendChild(info);
+                list.appendChild(entry);
+            });
+
+            const total = pids.length + 1;
+            countEl.textContent = `${total} player${total !== 1 ? 's' : ''} online`;
+        }
+
+        // ── 3D CHAT BUBBLE above a player ──
+        function showChatBubble(pid, text) {
+            // Clear existing bubble
+            if (chatBubbles[pid]) {
+                clearTimeout(chatBubbles[pid].timer);
+                const p = pid === 'self' ? null : otherPlayers[pid];
+                const grp = pid === 'self' ? playerGroup : (p && p.group);
+                if (grp && chatBubbles[pid].sprite) grp.remove(chatBubbles[pid].sprite);
+                chatBubbles[pid].sprite.material.map.dispose();
+                chatBubbles[pid].sprite.material.dispose();
+            }
+
+            const displayText = text.length > 28 ? text.substr(0, 28) + '…' : text;
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 96;
+            const ctx = canvas.getContext('2d');
+            ctx.font = 'Bold 28px sans-serif';
+            const tw = ctx.measureText(displayText).width;
+            // Bubble background
+            ctx.fillStyle = 'rgba(0,0,0,0.72)';
+            const bx = 256 - tw/2 - 14, bw = tw + 28;
+            ctx.beginPath();
+            ctx.roundRect(bx, 16, bw, 46, 8);
+            ctx.fill();
+            // White border
+            ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2;
+            ctx.stroke();
+            // Text
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
+            ctx.strokeText(displayText, 256, 39);
+            ctx.fillText(displayText, 256, 39);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+            sprite.scale.set(3.0, 0.56, 1);
+            sprite.position.set(0, 1.1, 0); // above name tag
+
+            const grp = pid === 'self' ? playerGroup : (otherPlayers[pid] && otherPlayers[pid].group);
+            if (!grp) return;
+            grp.add(sprite);
+
+            const timer = setTimeout(() => {
+                grp.remove(sprite);
+                tex.dispose(); sprite.material.dispose();
+                delete chatBubbles[pid];
+            }, 5000);
+            chatBubbles[pid] = { sprite, timer };
+        }
+
+        function togglePlayersPanel() {
+            const panel = document.getElementById('players-panel');
+            const isOpen = panel.classList.contains('open');
+            if (!isOpen) { renderPlayersList(); panel.classList.add('open'); if(document.pointerLockElement) document.exitPointerLock(); }
+            else { panel.classList.remove('open'); if(!isTouch && !paused) document.body.requestPointerLock(); }
+        }
+
+
         function setMenuProgress(pct, text) {
             const bar = document.getElementById('progress-bar');
             const txt = document.getElementById('loading-text');
@@ -1020,6 +1405,10 @@
                     if (change.type === "added" || change.type === "modified") {
                         if (!otherPlayers[pid]) {
                             createRemotePlayer(pid, data);
+                            // Join toast
+                            const joinName = data.name || pid.substr(0,8);
+                            const col = getPlayerColor(pid);
+                            showToast(`${joinName} joined the world`, col, col);
                         } else {
                             // If skin changed, tear down old model and rebuild
                             const prevSkin = otherPlayers[pid].data && otherPlayers[pid].data.skin;
@@ -1031,7 +1420,12 @@
                         }
                         updateRemotePlayer(pid, data);
                     }
-                    if (change.type === "removed") removeRemotePlayer(pid);
+                    if (change.type === "removed") {
+                        const leaveName = (otherPlayers[pid] && otherPlayers[pid].data && otherPlayers[pid].data.name) || pid.substr(0,8);
+                        showToast(`${leaveName} left the world`, '#aaa', '#555');
+                        removeRemotePlayer(pid);
+                    }
+                    renderPlayersList();
                 });
             });
 
@@ -1095,13 +1489,34 @@
                 log.innerHTML = '';
                 msgs.forEach(m => {
                     const el = document.createElement('div');
+                    el.style.marginBottom = '2px';
                     const nameSpan = document.createElement('span');
-                    nameSpan.style.color = '#0f0';
-                    nameSpan.textContent = `[${m.user.substr(0,8)}]`;
-                    const textNode = document.createTextNode(': ' + m.text);
-                    el.appendChild(nameSpan);
-                    el.appendChild(textNode);
+                    const msgColor = m.uid ? getPlayerColor(m.uid) : '#0f0';
+                    nameSpan.style.color = msgColor;
+                    nameSpan.textContent = `[${(m.user||'?').substr(0,8)}]`;
+                    if (m.emote) {
+                        el.style.color = '#aaa';
+                        el.style.fontStyle = 'italic';
+                        el.appendChild(nameSpan);
+                        el.appendChild(document.createTextNode(' ' + m.text));
+                    } else if (m.reaction) {
+                        el.style.color = '#f8c';
+                        el.appendChild(nameSpan);
+                        el.appendChild(document.createTextNode(' reacted ' + m.text));
+                    } else {
+                        el.appendChild(nameSpan);
+                        el.appendChild(document.createTextNode(': ' + m.text));
+                    }
                     log.appendChild(el);
+
+                    // Show 3D chat bubble on the sender
+                    if (m.uid && m.uid !== userId && otherPlayers[m.uid]) {
+                        showChatBubble(m.uid, m.reaction ? m.text : (m.emote ? '* ' + m.text + ' *' : m.text));
+                    }
+                    // Show on own head (third-person modes)
+                    if (m.uid && m.uid === userId && povMode !== 0) {
+                        showChatBubble('self', m.reaction ? m.text : m.text);
+                    }
                 });
                 log.scrollTop = log.scrollHeight;
             });
@@ -1147,6 +1562,7 @@
                     name: userDisplayName,
                     moving: Math.hypot(vel.x || 0, vel.z || 0) > 0.1,
                     skin: currentSkin,
+                    coins: coins,
                     lastSeen: serverTimestamp()
                 }, { merge: true });
             }
@@ -1338,7 +1754,24 @@
             } else if (type === 'CHAT') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat'), {
                     user: userDisplayName,
+                    uid: userId,
                     text: data.text,
+                    timestamp: serverTimestamp()
+                });
+            } else if (type === 'EMOTE') {
+                addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat'), {
+                    user: userDisplayName,
+                    uid: userId,
+                    text: data.text,
+                    emote: true,
+                    timestamp: serverTimestamp()
+                });
+            } else if (type === 'REACT') {
+                addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'chat'), {
+                    user: userDisplayName,
+                    uid: userId,
+                    text: data.emoji,
+                    reaction: true,
                     timestamp: serverTimestamp()
                 });
             }
@@ -1675,8 +2108,8 @@
             geo.setIndex(idx);
             if (!sharedChunkMaterial) sharedChunkMaterial = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, transparent: true, alphaTest: 0.1 });
             const mesh = new THREE.Mesh(geo, sharedChunkMaterial);
-            mesh.castShadow = true; 
-            mesh.receiveShadow = true;
+            mesh.castShadow = false; 
+            mesh.receiveShadow = false;
             return mesh;
         }
 
@@ -1957,6 +2390,17 @@
             else if(!isTouch && !paused) document.body.requestPointerLock();
         }
 
+        const EMOTES = {
+            '/wave':  'waves hello 👋',
+            '/dance': 'is dancing 🕺',
+            '/sit':   'sits down 🪑',
+            '/hi':    'says hi! 😊',
+            '/laugh': 'bursts out laughing 😂',
+            '/cry':   'is crying 😢',
+            '/hug':   'wants a hug 🤗',
+            '/gg':    'says GG! 🎉',
+        };
+
         function sendChatMessage() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
@@ -1970,6 +2414,10 @@
                     } else {
                         broadcastAction('CHAT', { text: "No land claimed." });
                     }
+                } else if (EMOTES[text.toLowerCase()]) {
+                    broadcastAction('EMOTE', { text: EMOTES[text.toLowerCase()] });
+                } else if (text === '/help') {
+                    broadcastAction('CHAT', { text: 'Cmds: /home /wave /dance /sit /hi /laugh /cry /hug /gg' });
                 } else {
                     broadcastAction('CHAT', { text }); 
                 }
@@ -1983,11 +2431,28 @@
             document.getElementById('chat-toggle-btn').onclick = (e) => { e.stopPropagation(); toggleChat(); };
             document.getElementById('chat-send-btn').onclick = (e) => { e.stopPropagation(); sendChatMessage(); };
             document.getElementById('chat-input').onkeydown = (e) => { if (e.key === 'Enter') sendChatMessage(); e.stopPropagation(); };
-            
             document.getElementById('shop-btn').onclick = (e) => { e.stopPropagation(); toggleShop(); };
             document.getElementById('close-shop').onclick = () => toggleShop();
             document.getElementById('close-chest').onclick = () => closeChestUI();
             document.getElementById('del-mode-btn').onclick = () => { deleteMode = !deleteMode; document.getElementById('del-mode-btn').innerText = `DELETE MODE: ${deleteMode?'ON':'OFF'}`; };
+
+            // ── Social buttons ──
+            document.getElementById('players-btn').onclick = (e) => { e.stopPropagation(); togglePlayersPanel(); };
+            document.getElementById('close-players-btn').onclick = () => togglePlayersPanel();
+
+            // Reaction bar toggle — tap the MSG button a second time while chat is open
+            document.querySelectorAll('.reaction-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    const emoji = btn.dataset.react;
+                    broadcastAction('REACT', { emoji });
+                    // Show on self head too
+                    if (povMode !== 0) showChatBubble('self', emoji);
+                    // Quick pulse animation
+                    btn.style.transform = 'scale(1.4)';
+                    setTimeout(() => btn.style.transform = '', 180);
+                };
+            });
             
             document.getElementById('shop-mode-btn').onclick = () => { 
                 shopSellMode = !shopSellMode; 
@@ -1998,7 +2463,7 @@
 
             const pBtn = document.getElementById('pause-btn'), camBtn = document.getElementById('cam-btn'), fsBtn = document.getElementById('fs-btn'), pMenu = document.getElementById('pause-menu');
             camBtn.onclick = (e) => { e.stopPropagation(); povMode = (povMode + 1) % 3; updatePOV(); };
-            fsBtn.onclick = (e) => { e.stopPropagation(); if (!document.fullscreenElement) document.documentElement.requestFullscreen().then(() => fsBtn.innerText = "EXIT"); else document.exitFullscreen().then(() => fsBtn.innerText = "FULL"); };
+            fsBtn.onclick = (e) => { e.stopPropagation(); if (!document.fullscreenElement) document.documentElement.requestFullscreen().then(() => fsBtn.querySelector('.hud-icon').textContent = '⛶'); else document.exitFullscreen().then(() => fsBtn.querySelector('.hud-icon').textContent = '⛶'); };
             pBtn.onclick = (e) => { e.stopPropagation(); paused = true; pMenu.style.display = 'flex'; if(document.pointerLockElement) document.exitPointerLock(); };
             document.getElementById('resume-btn').onclick = () => { paused = false; pMenu.style.display = 'none'; if(!isTouch) document.body.requestPointerLock(); };
             document.getElementById('quit-btn').onclick = () => { saveGame(); location.reload(); };
@@ -2295,7 +2760,13 @@
             }
         }
 
-        function updateCoinDisplay() { document.getElementById('coin-display').innerText = `COINS: ${coins}`; const cv = document.getElementById('shop-coin-val'); if(cv) cv.innerText = coins; }
+        function updateCoinDisplay() { 
+            document.getElementById('coin-display').innerText = `COINS: ${coins}`; 
+            const cv = document.getElementById('shop-coin-val'); 
+            if(cv) cv.innerText = coins;
+            // Keep players panel in sync with our own coin count
+            if (document.getElementById('players-panel').classList.contains('open')) renderPlayersList();
+        }
 
         function updateUI() {
             const slots = document.getElementById('hotbar-slots'); slots.innerHTML = '';
@@ -2414,7 +2885,8 @@
             // t=0: midnight, t=0.25: dawn, t=0.5: noon, t=0.75: dusk, t=1: midnight
             if (Math.abs(angle - _lastSkyAngle) > 0.005) {
                 _lastSkyAngle = angle;
-                const t = (angle / (Math.PI * 2) + 1) % 1; // 0–1 over full day
+                // angle=0 → sun overhead (noon), so shift by +0.5 so it maps to t=0.5
+                const t = (angle / (Math.PI * 2) + 0.5) % 1; // 0=midnight, 0.5=noon
 
                 // ── Minecraft-accurate sky colour keyframes ──
                 // Minecraft's signature sky is #78A7FF (slightly purple-blue)
@@ -2449,8 +2921,7 @@
                 const dawnFactor = Math.max(0, Math.min(1, (t - 0.19) * 18, (0.81 - t) * 18));
                 sunLight.intensity  = sunT * 1.4;
                 ambientLight.intensity = 0.05 + dawnFactor * 0.35 + sunT * 0.45;
-                // No shadows at night
-                if (!_isLowEnd) sunLight.castShadow = sunT > 0.08;
+                // No shadows — using baked vertex AO (Minecraft style)
 
                 // ── Fog density: thicker at night (like Minecraft void blindness) ──
                 const nightFog = _isLowEnd ? 0.045 : 0.027;
@@ -2596,8 +3067,16 @@
             for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
             running = true;
             updatePOV();
-            if(!isTouch) document.body.requestPointerLock();
-            else document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
+            if(!isTouch) {
+                document.body.requestPointerLock();
+                document.getElementById('hud-left').classList.add('visible');
+                document.getElementById('hud-right').classList.add('visible');
+            } else {
+                document.querySelectorAll('.ctrl').forEach(e=>e.style.display='flex');
+                document.getElementById('hud-left').classList.add('visible');
+                document.getElementById('hud-right').classList.add('visible');
+            }
+            document.getElementById('reaction-bar').classList.add('visible');
             updateWorld();
             await new Promise(r => setTimeout(r, 500));
 
@@ -2622,24 +3101,13 @@
             renderer = new THREE.WebGLRenderer({ antialias: !isTouch && !_isLowEnd, powerPreference: 'high-performance' });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, _isLowEnd ? 1 : (isTouch ? 1.5 : 2)));
-            renderer.shadowMap.enabled = !_isLowEnd;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.shadowMap.enabled = false; // Minecraft uses baked vertex AO, not dynamic shadows
             renderer.sortObjects = false;
             document.body.appendChild(renderer.domElement);
             
             scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); 
             sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            sunLight.castShadow = !_isLowEnd;
-            if (!_isLowEnd) {
-                const shadowRes = isTouch ? 512 : 1024;
-                sunLight.shadow.mapSize.width  = shadowRes;
-                sunLight.shadow.mapSize.height = shadowRes;
-                const d = 30;
-                sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
-                sunLight.shadow.camera.top  =  d; sunLight.shadow.camera.bottom = -d;
-                sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 100;
-                sunLight.shadow.bias = -0.0005;
-            }
+            sunLight.castShadow = false; // shadow maps disabled — using vertex AO instead
             scene.add(sunLight); scene.add(sunLight.target); 
 
             raycaster = new THREE.Raycaster();
