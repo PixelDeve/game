@@ -2170,8 +2170,8 @@
                         if (type === 0) continue; // air — keep scanning down
                         // Only place grass plants on grass blocks (id 1) with air above
                         if (type === 1 && getBlock(wx, y + 1, wz) === 0) {
-                            // ~50% random coverage using hash
-                            if (hash(wx * 73856093, wz * 19349663) % 2 === 0) {
+                            // ~10% random coverage using hash
+                            if (hash(wx * 73856093, wz * 19349663) % 10 === 0) {
                                 const gy = y + 1; // one block above the grass surface
                                 // Cross: two diagonal quads (both rendered double-sided via index winding)
                                 // Quad 1: NW-SE diagonal
