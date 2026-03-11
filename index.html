@@ -3305,138 +3305,122 @@
         }
 
         async function init() {
+            // ── Register auth listener FIRST before anything can crash ──
             const showSignIn = () => {
                 setMenuProgress(100, 'SIGN IN TO PLAY');
                 document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
                 document.getElementById('start-btn').style.display = 'block';
             };
-            try {
+
+            document.getElementById('start-btn').onclick = async () => {
+                try {
+                    const provider = new GoogleAuthProvider();
+                    await signInWithPopup(auth, provider);
+                } catch(e) { console.error('sign in failed', e); }
+            };
+
+            // ── Build atlas & scene (synchronous after createAtlas) ──
             setMenuProgress(10, 'LOADING TEXTURES...');
             atlas = await createAtlas();
+
             setMenuProgress(30, 'BUILDING SCENE...');
             scene = new THREE.Scene();
-            // ── Minecraft-style exponential fog ──
-            const fogDensity = _isLowEnd ? 0.045 : 0.027;
-            scene.fog = new THREE.FogExp2(0x78A7FF, fogDensity);
+            scene.fog = new THREE.FogExp2(0x78A7FF, _isLowEnd ? 0.045 : 0.027);
             scene.background = new THREE.Color(0x78A7FF);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
-
-            // ── Performance: limit pixel ratio, enable optimisations ──
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100);
+            cameraPivot.add(camera);
             renderer = new THREE.WebGLRenderer({ antialias: !isTouch && !_isLowEnd, powerPreference: 'high-performance' });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, _isLowEnd ? 1 : (isTouch ? 1.5 : 2)));
-            renderer.shadowMap.enabled = false; // Minecraft uses baked vertex AO, not dynamic shadows
+            renderer.shadowMap.enabled = false;
             renderer.sortObjects = false;
             document.body.appendChild(renderer.domElement);
-            
-            scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); 
+            scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6));
             sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            sunLight.castShadow = false; // shadow maps disabled — using vertex AO instead
-            scene.add(sunLight); scene.add(sunLight.target); 
-
+            sunLight.castShadow = false;
+            scene.add(sunLight); scene.add(sunLight.target);
             raycaster = new THREE.Raycaster();
-            selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
-            scene.add(selectionBox); 
-            
+            selectionBox = new THREE.Mesh(
+                new THREE.BoxGeometry(1.01, 1.01, 1.01),
+                new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 })
+            );
+            scene.add(selectionBox);
+
             setMenuProgress(50, 'BUILDING WORLD...');
-            // Use a simple box as placeholder — the real skin is loaded in startGame().
-            // This removes the biggest loading bottleneck (waiting for model1.glb).
             externalModel = new THREE.Mesh(
                 new THREE.BoxGeometry(0.5, 1.6, 0.5),
                 new THREE.MeshLambertMaterial({ color: 0x4488ff })
             );
             externalModel.position.y = -PLAYER_HEIGHT;
-            externalModel.castShadow = true;
             playerGroup.add(externalModel);
             modelLoaded = true;
 
-            setMenuProgress(70, 'CHECKING AUTH...');
-            // ── Minecraft-style blocky clouds ──
+            // Clouds
             const cloudGroup = new THREE.Group();
             cloudGroup.position.y = 42;
             const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.88 });
-            const cloudPatches = [
-                [0,0,18,5],[14,4,12,6],[-12,3,10,5],[20,-6,16,5],[-20,-8,14,6],
-                [6,10,10,4],[-6,-12,20,5],[26,2,8,5],[-24,6,12,4],[10,-14,14,6]
-            ];
-            cloudPatches.forEach(([px,pz,w,d]) => {
+            [[0,0,18,5],[14,4,12,6],[-12,3,10,5],[20,-6,16,5],[-20,-8,14,6],
+             [6,10,10,4],[-6,-12,20,5],[26,2,8,5],[-24,6,12,4],[10,-14,14,6]
+            ].forEach(([px,pz,w,d]) => {
                 const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, d), cloudMat);
                 m.position.set(px, (Math.random()-0.5)*0.4, pz);
                 cloudGroup.add(m);
             });
-            clouds = cloudGroup;
-            scene.add(cloudGroup);
+            clouds = cloudGroup; scene.add(cloudGroup);
 
-            // ── Sun disc (Minecraft-style square white disc) ──
-            const sunGeo = new THREE.PlaneGeometry(7, 7);
-            const sunMat = new THREE.MeshBasicMaterial({ color: 0xFFFFA0, side: THREE.DoubleSide, fog: false });
-            sunMesh = new THREE.Mesh(sunGeo, sunMat);
-            sunMesh.renderOrder = -1;
-            scene.add(sunMesh);
-
-            // ── Moon disc (slightly blue-white) ──
-            const moonGeo = new THREE.PlaneGeometry(5, 5);
-            const moonMat = new THREE.MeshBasicMaterial({ color: 0xCCDDFF, side: THREE.DoubleSide, fog: false });
-            moonMesh = new THREE.Mesh(moonGeo, moonMat);
-            moonMesh.renderOrder = -1;
-            scene.add(moonMesh);
-
-            // ── Stars: random points on upper hemisphere ──
+            // Sun / Moon / Stars
+            sunMesh = new THREE.Mesh(new THREE.PlaneGeometry(7,7), new THREE.MeshBasicMaterial({ color:0xFFFFA0, side:THREE.DoubleSide, fog:false }));
+            sunMesh.renderOrder = -1; scene.add(sunMesh);
+            moonMesh = new THREE.Mesh(new THREE.PlaneGeometry(5,5), new THREE.MeshBasicMaterial({ color:0xCCDDFF, side:THREE.DoubleSide, fog:false }));
+            moonMesh.renderOrder = -1; scene.add(moonMesh);
             const starCount = _isLowEnd ? 300 : 700;
             const starPos = new Float32Array(starCount * 3);
             for (let i = 0; i < starCount; i++) {
-                const theta = Math.random() * Math.PI * 2;
-                const phi   = Math.acos(Math.random()); // upper hemisphere only
-                const r     = 75;
-                starPos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
-                starPos[i*3+1] = r * Math.cos(phi);
-                starPos[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+                const theta = Math.random()*Math.PI*2, phi = Math.acos(Math.random()), r = 75;
+                starPos[i*3]=r*Math.sin(phi)*Math.cos(theta); starPos[i*3+1]=r*Math.cos(phi); starPos[i*3+2]=r*Math.sin(phi)*Math.sin(theta);
             }
             const starGeo = new THREE.BufferGeometry();
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-            starsMesh = new THREE.Points(starGeo,
-                new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, transparent: true, opacity: 0, fog: false }));
+            starsMesh = new THREE.Points(starGeo, new THREE.PointsMaterial({ color:0xffffff, size:0.35, transparent:true, opacity:0, fog:false }));
             scene.add(starsMesh);
+
             setupInput(); updateUI();
-
-            document.getElementById('start-btn').onclick = async () => {
-                const provider = new GoogleAuthProvider();
-                try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
-            };
-            window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-
-            setMenuProgress(90, 'CHECKING AUTH...');
-            // Safety timeout: if Firebase doesn't respond in 5s, show sign-in anyway
-            const authTimeout = setTimeout(() => {
-                setMenuProgress(100, 'SIGN IN TO PLAY');
-                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
-                document.getElementById('start-btn').style.display = 'block';
-            }, 5000);
-            setPersistence(auth, browserLocalPersistence).then(() => {
-                onAuthStateChanged(auth, (user) => {
-                    clearTimeout(authTimeout);
-                    setMenuProgress(100, 'READY!');
-                    if (user) {
-                        startGame(user);
-                    } else {
-                        showSignIn();
-                    }
-                });
-            }).catch(() => {
-                clearTimeout(authTimeout);
-                showSignIn();
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth/window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
             });
-            } catch(err) {
-                console.error('init error:', err);
-                showSignIn();
-            }
+
+            // ── Now wait for Firebase auth ──
+            setMenuProgress(90, 'CHECKING AUTH...');
+            const authTimeout = setTimeout(showSignIn, 6000);
+
+            try {
+                await setPersistence(auth, browserLocalPersistence);
+            } catch(e) { /* ignore — continue with default persistence */ }
+
+            onAuthStateChanged(auth, (user) => {
+                clearTimeout(authTimeout);
+                if (user) {
+                    startGame(user).catch(err => {
+                        console.error('startGame crashed:', err);
+                        // Game failed to start — hide join screen, show world
+                        const js = document.getElementById('join-loading-screen');
+                        if (js) js.classList.remove('visible');
+                        running = true;
+                        animate();
+                    });
+                } else {
+                    showSignIn();
+                }
+            });
         }
         let last = performance.now();
         init().catch(err => {
-            console.error('init() crashed:', err);
-            document.getElementById('loading-text').innerText = 'ERROR - REFRESH PAGE';
+            console.error('init crashed:', err);
+            document.getElementById('loading-text').innerText = 'ERROR — PLEASE REFRESH';
             document.getElementById('start-btn').style.display = 'block';
         });
     </script>
