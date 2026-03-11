@@ -1877,8 +1877,8 @@
             if(currentUser && userId) {
                 const userRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'user_stats', userId);
                 try {
-                    // Race Firestore against a 6s timeout so we never hang here
-                    const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error('loadGame timeout')), 6000));
+                    // Race Firestore against a 2.5s timeout so we never hang here
+                    const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error('loadGame timeout')), 2500));
                     const snap = await Promise.race([getDoc(userRef), timeoutP]);
                     if(snap.exists()) {
                         const saved = snap.data();
@@ -3136,6 +3136,7 @@
         }
 
         async function startGame(user) {
+          try {
             currentUser = user;
             userId = user.uid;
             userDisplayName = user.displayName || user.email.split('@')[0] || userId.substr(0, 8);
@@ -3195,9 +3196,9 @@
             if(activeTool) currentMineDelay = 400 * activeTool.speedMod;
 
             setJoinStep(3, 'CONNECTING TO SERVER...');
-            initNetwork();
+            try { initNetwork(); } catch(e) { console.warn('Network init error (game will still run):', e); }
             loadSounds(); // non-blocking — sounds load in background
-            await new Promise(r => setTimeout(r, 400));
+            await new Promise(r => setTimeout(r, 800));
 
             setJoinStep(4, 'GENERATING TERRAIN...');
             playerGroup.position.set(0.5, 32, 0.5);
@@ -3205,7 +3206,7 @@
             running = true;
             updatePOV();
             if(!isTouch) {
-                document.body.requestPointerLock();
+                try { document.body.requestPointerLock(); } catch(e) {}
                 document.getElementById('hud-left').classList.add('visible');
                 document.getElementById('hud-right').classList.add('visible');
             } else {
@@ -3218,42 +3219,44 @@
 
             finishJoinScreen();
             animate();
+          } catch(err) {
+            console.error('startGame crashed:', err);
+            // Never leave the join screen stuck — hide it and show the main menu
+            const screen = document.getElementById('join-loading-screen');
+            if (screen) screen.classList.remove('visible');
+            const loading = document.getElementById('loading');
+            if (loading) loading.style.display = 'flex';
+            const lt = document.getElementById('loading-text');
+            if (lt) lt.innerText = 'ERROR — RELOAD TO RETRY';
+            const sb = document.getElementById('start-btn');
+            if (sb) { sb.style.display = 'block'; sb.innerText = '↺ RETRY'; sb.onclick = () => location.reload(); }
+          }
         }
 
         async function init() {
             setMenuProgress(10, 'LOADING TEXTURES...');
             atlas = await createAtlas();
 
-            // ── Load grass plant cross texture ──
-            await (async () => {
-                const urls = [
-                    new URL('./assets/grass_plant.png', window.location.href).href,
-                    new URL('./grass_plant.png', window.location.href).href
-                ];
-                for (const url of urls) {
-                    try {
-                        const res = await cachedFetch(url);
-                        if (!res || !res.ok) continue;
-                        const blob = await res.blob();
-                        const blobUrl = URL.createObjectURL(blob);
-                        await new Promise((resolve) => {
-                            const img = new Image();
-                            img.onload = () => {
-                                const c = document.createElement('canvas');
-                                c.width = img.width; c.height = img.height;
-                                c.getContext('2d').drawImage(img, 0, 0);
-                                grassPlantTexture = new THREE.CanvasTexture(c);
-                                grassPlantTexture.magFilter = THREE.NearestFilter;
-                                grassPlantTexture.minFilter = THREE.NearestFilter;
-                                resolve();
-                            };
-                            img.onerror = resolve; // silently skip if not found
-                            img.src = blobUrl;
-                        });
-                        if (grassPlantTexture) break; // loaded successfully
-                    } catch (e) { /* try next path */ }
-                }
-            })();
+            // ── Load grass plant cross texture (always resolves, never hangs) ──
+            await new Promise((resolve) => {
+                const safetyTimeout = setTimeout(resolve, 3000); // never hang >3s
+                const loader = new THREE.TextureLoader();
+                const onLoad = (tex) => {
+                    clearTimeout(safetyTimeout);
+                    tex.magFilter = THREE.NearestFilter;
+                    tex.minFilter = THREE.NearestFilter;
+                    grassPlantTexture = tex;
+                    resolve();
+                };
+                const onError = () => {
+                    // Try root path as fallback, then give up cleanly
+                    loader.load('./grass_plant.png', onLoad, undefined, () => {
+                        clearTimeout(safetyTimeout);
+                        resolve(); // file not found — grass plants just won't render
+                    });
+                };
+                loader.load('./assets/grass_plant.png', onLoad, undefined, onError);
+            });
             setMenuProgress(30, 'BUILDING SCENE...');
             scene = new THREE.Scene();
             // ── Minecraft-style exponential fog ──
@@ -3360,7 +3363,11 @@
                     clearTimeout(authTimeout);
                     setMenuProgress(100, 'READY!');
                     if (user) {
-                        startGame(user);
+                        startGame(user).catch(e => {
+                            console.error('startGame unhandled:', e);
+                            const lt = document.getElementById('loading-text');
+                            if (lt) lt.innerText = 'ERROR — RELOAD TO RETRY';
+                        });
                     } else {
                         document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
                         document.getElementById('start-btn').style.display = 'block';
