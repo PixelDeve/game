@@ -875,6 +875,7 @@
         let sharedChunkMaterial = null;
         let grassPlantTexture = null;
         let grassPlantMeshes = {};
+        const brokenGrassPlants = new Set(); // "wx,wy,wz" keys of manually broken plants
 
         // ── SOUND SYSTEM ──
         const sounds = {};
@@ -2164,16 +2165,15 @@
                 for (let z = 0; z < CHUNK_SIZE; z++) {
                     const wx = cx * CHUNK_SIZE + x;
                     const wz = cz * CHUNK_SIZE + z;
-                    // Find the topmost solid block in this column
                     for (let y = 31; y >= 1; y--) {
                         const type = getBlock(wx, y, wz);
-                        if (type === 0) continue; // air — keep scanning down
-                        // Only place grass plants on grass blocks (id 1) with air above
+                        if (type === 0) continue;
                         if (type === 1 && getBlock(wx, y + 1, wz) === 0) {
                             // ~10% random coverage using hash
                             if (hash(wx * 73856093, wz * 19349663) % 10 === 0) {
-                                const gy = y + 1; // one block above the grass surface
-                                // Cross: two diagonal quads (both rendered double-sided via index winding)
+                                // Skip plants that have been broken by the player
+                                if (brokenGrassPlants.has(`${wx},${y + 1},${wz}`)) break;
+                                const gy = y + 1;
                                 // Quad 1: NW-SE diagonal
                                 positions.push(
                                     wx,     gy,     wz,
@@ -2182,12 +2182,9 @@
                                     wx + 1, gy,     wz + 1
                                 );
                                 uvs.push(0, 0,  0, 1,  1, 1,  1, 0);
-                                // Front face
-                                indices.push(count, count + 1, count + 2, count, count + 2, count + 3);
-                                // Back face
-                                indices.push(count + 2, count + 1, count, count + 3, count + 2, count);
+                                indices.push(count, count+1, count+2, count, count+2, count+3);
+                                indices.push(count+2, count+1, count, count+3, count+2, count);
                                 count += 4;
-
                                 // Quad 2: NE-SW diagonal
                                 positions.push(
                                     wx + 1, gy,     wz,
@@ -2196,14 +2193,12 @@
                                     wx,     gy,     wz + 1
                                 );
                                 uvs.push(0, 0,  0, 1,  1, 1,  1, 0);
-                                // Front face
-                                indices.push(count, count + 1, count + 2, count, count + 2, count + 3);
-                                // Back face
-                                indices.push(count + 2, count + 1, count, count + 3, count + 2, count);
+                                indices.push(count, count+1, count+2, count, count+2, count+3);
+                                indices.push(count+2, count+1, count, count+3, count+2, count);
                                 count += 4;
                             }
                         }
-                        break; // Stop once we hit any solid block (grass or not)
+                        break;
                     }
                 }
             }
@@ -2216,15 +2211,19 @@
             geo.setIndex(indices);
             geo.computeVertexNormals();
 
+            // depthWrite:true + alphaTest:0.5 + transparent:false = hard cutout,
+            // no depth-sort artifacts, no half-chopped look at distance
             const mat = new THREE.MeshBasicMaterial({
                 map: grassPlantTexture,
                 side: THREE.DoubleSide,
-                transparent: true,
-                alphaTest: 0.3,
-                depthWrite: false,
+                transparent: false,
+                alphaTest: 0.5,
+                depthWrite: true,
             });
 
-            return new THREE.Mesh(geo, mat);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.userData.isGrassPlant = true; // flag for interact()
+            return mesh;
         }
 
         function refreshChunk(wx, wz) {
@@ -2233,7 +2232,7 @@
             if(chunkMeshes[k]) {
                 scene.remove(chunkMeshes[k]);
                 clickables = clickables.filter(c => c !== chunkMeshes[k]);
-                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose(); // ── Perf: free GPU memory
+                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose();
                 delete chunkMeshes[k];
             }
             const m = buildChunk(cx, cz);
@@ -2241,13 +2240,13 @@
             // Rebuild grass plant mesh for this chunk
             if (grassPlantMeshes[k]) {
                 scene.remove(grassPlantMeshes[k]);
+                clickables = clickables.filter(c => c !== grassPlantMeshes[k]);
                 if (grassPlantMeshes[k].geometry) grassPlantMeshes[k].geometry.dispose();
                 if (grassPlantMeshes[k].material) grassPlantMeshes[k].material.dispose();
                 delete grassPlantMeshes[k];
             }
             const gm = buildGrassPlantMesh(cx, cz);
-            if (gm) { scene.add(gm); grassPlantMeshes[k] = gm; }
-            // Reset chunk tracker so updateWorld won't skip this chunk area
+            if (gm) { scene.add(gm); clickables.push(gm); grassPlantMeshes[k] = gm; }
             lastPlayerCX = null; lastPlayerCZ = null;
         }
 
@@ -2285,6 +2284,27 @@
                         saveGame();
                     }
                     return true;
+                }
+
+                // ── Grass plant hit ──
+                if (h.object.userData && h.object.userData.isGrassPlant) {
+                    if (!place) {
+                        // Find which plant cell was hit using the hit point
+                        const gx = Math.floor(h.point.x);
+                        const gz = Math.floor(h.point.z);
+                        // Scan down from hit point to find the grass surface below
+                        for (let gy = Math.ceil(h.point.y); gy >= 1; gy--) {
+                            const below = getBlock(gx, gy - 1, gz);
+                            if (below === 1) {
+                                const plantKey = `${gx},${gy},${gz}`;
+                                brokenGrassPlants.add(plantKey);
+                                refreshChunk(gx, gz);
+                                playSound('break', 0.7);
+                                return true;
+                            }
+                        }
+                    }
+                    return false; // right-click on grass plant does nothing
                 }
 
                 const bx = Math.floor(h.point.x - n.x*0.05), by = Math.floor(h.point.y - n.y*0.05), bz = Math.floor(h.point.z - n.z*0.05);
@@ -2912,7 +2932,7 @@
                 for(let z=pz-RENDER_DIST; z<=pz+RENDER_DIST; z++) {
                     const k = `${x},${z}`;
                     if(!chunkMeshes[k]) { const m = buildChunk(x, z); if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }}
-                    if(!grassPlantMeshes[k]) { const gm = buildGrassPlantMesh(x, z); if(gm) { scene.add(gm); grassPlantMeshes[k] = gm; }}
+                    if(!grassPlantMeshes[k]) { const gm = buildGrassPlantMesh(x, z); if(gm) { scene.add(gm); clickables.push(gm); grassPlantMeshes[k] = gm; }}
                 }
             }
             // ── Performance: unload chunks that are now out of range ──
@@ -2933,6 +2953,7 @@
                 if (Math.abs(cx - px) > UNLOAD_DIST || Math.abs(cz - pz) > UNLOAD_DIST) {
                     const gm = grassPlantMeshes[k];
                     scene.remove(gm);
+                    clickables = clickables.filter(c => c !== gm);
                     if (gm.geometry) gm.geometry.dispose();
                     if (gm.material) gm.material.dispose();
                     delete grassPlantMeshes[k];
