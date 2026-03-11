@@ -647,7 +647,7 @@
         //  ASSET CACHE  (Cache API + IndexedDB)
         // ══════════════════════════════════════
         const ASSET_CACHE   = 'voxelpocket-assets-v1';
-        const ATLAS_IDB_KEY = 'atlas-v5';   // bump this whenever block textures change
+        const ATLAS_IDB_KEY = 'atlas-v4';   // bump this whenever block textures change
 
         // Generic fetch-with-cache — stores Response in Cache API
         async function cachedFetch(url) {
@@ -856,16 +856,7 @@
                    hardness: 2.5, isChest: true }
         };
 
-        // ── FOLIAGE: decorative cross-shaped plants spawned on grass ──
-        // Each entry: { file, weight, tint } — weight controls spawn rarity
-        const FOLIAGE_TYPES = [
-            { file: 'grass_plant.png', weight: 100 }, // short grass only
-        ];
-        // Cumulative weight thresholds (computed once)
-        let FOLIAGE_THRESHOLDS = [];
-        let foliageAtlasTiles = []; // tile indices in main atlas (filled after atlas build)
-        let foliageMeshes = {};     // cx,cz → THREE.Mesh
-        let foliageMaterial = null; // shared double-sided transparent mat
+        let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds;
         let sunMesh, moonMesh, starsMesh, voidFogMesh;
         let playerGroup, externalModel, cameraPivot, modelLoaded = false;
         let world = {}, chunkMeshes = {}, clickables = [];
@@ -882,6 +873,8 @@
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
         let sharedChunkMaterial = null;
+        let grassPlantTexture = null;
+        let grassPlantMeshes = {};
 
         // ── SOUND SYSTEM ──
         const sounds = {};
@@ -1902,218 +1895,167 @@
         }
 
         async function createAtlas() {
-          try {
-            const S = 32;
+            // ── Try loading the pre-built atlas from IndexedDB ──
+            const cached = await atlasFromIDB();
+            if (cached) {
+                try {
+                    const tex = await new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.width; canvas.height = img.height;
+                            canvas.getContext('2d').drawImage(img, 0, 0);
+                            const S = 32;
+                            ATLAS_COLS = Math.round(img.width / S);
+                            ATLAS_ROWS = Math.round(img.height / S);
+                            const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
+                            const fileToId = {};
+                            uniqueFiles.forEach((f, i) => fileToId[f] = i);
+                            Object.values(BLOCKS).forEach(b => { if(b.files) b.tiles = b.files.map(f => fileToId[f]); });
+                            const tex = new THREE.CanvasTexture(canvas);
+                            tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+                            tex.image = canvas;
+                            resolve(tex);
+                        };
+                        img.onerror = () => reject(new Error('Cached atlas corrupt'));
+                        img.src = cached;
+                    });
+                    return tex;
+                } catch(e) {
+                    console.warn('Atlas IDB cache invalid, rebuilding:', e);
+                    // fall through to full rebuild below
+                }
+            }
+            const S = 32; 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-
-            const uniqueFiles = [...new Set([
-                ...Object.values(BLOCKS).flatMap(b => b.files || []),
-                ...FOLIAGE_TYPES.map(f => f.file)
-            ])];
-
+            
+            const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
+            const count = uniqueFiles.length;
+            
             ATLAS_COLS = 8;
-            ATLAS_ROWS = Math.max(1, Math.ceil(uniqueFiles.length / ATLAS_COLS));
-            canvas.width  = S * ATLAS_COLS;
+            ATLAS_ROWS = Math.max(1, Math.ceil(count / ATLAS_COLS));
+            
+            canvas.width = S * ATLAS_COLS;
             canvas.height = S * ATLAS_ROWS;
 
-            // ── Procedural color map: filename → draw function ──
-            const noise = (x, y, scale=4) => ((Math.sin(x*127.1+y*311.7)*43758.5453)%1+1)%1 * scale - scale/2;
-            const px = (x, y, r, g, b) => { ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(x,y,1,1); };
-            const fill = (tx,ty,r,g,b,var_=8) => {
-                for(let y=0;y<S;y++) for(let x=0;x<S;x++) {
-                    const n=noise(tx+x,ty+y)|0;
-                    px(tx+x,ty+y,Math.min(255,r+n*var_),Math.min(255,g+n*var_),Math.min(255,b+n*var_));
-                }
-            };
-            const grid = (tx,ty,r,g,b,gw=8,gh=8,gr=20,gg=20,gb=20) => {
-                fill(tx,ty,r,g,b);
-                ctx.fillStyle=`rgb(${r-gr},${g-gg},${b-gb})`;
-                for(let y=0;y<S;y+=gh) ctx.fillRect(tx,ty+y,S,1);
-                for(let x=0;x<S;x+=gw) ctx.fillRect(tx+x,ty,1,S);
-            };
-
-            const PROC = {
-                'grass_top.png':    (tx,ty) => fill(tx,ty,88,168,48,12),
-                'grass_side.png':   (tx,ty) => { fill(tx,ty,134,96,60,8); fill(tx,ty,88,168,48,10); ctx.clearRect(tx,ty+8,S,S-8); fill(tx,ty+8,134,96,60,8); },
-                'dirt.png':         (tx,ty) => fill(tx,ty,134,96,60,10),
-                'stone.png':        (tx,ty) => fill(tx,ty,128,128,128,12),
-                'cobblestone.png':  (tx,ty) => grid(tx,ty,110,110,110,8,8,25,25,25),
-                'mossy_cobblestone.png':(tx,ty) => { grid(tx,ty,100,120,90,8,8,20,20,20); },
-                'stone_bricks.png': (tx,ty) => grid(tx,ty,120,120,120,16,8,20,20,20),
-                'planks.png':       (tx,ty) => { fill(tx,ty,163,126,76,6); ctx.fillStyle='rgba(0,0,0,0.15)'; for(let x=0;x<S;x+=8) ctx.fillRect(tx+x,ty,1,S); for(let y=0;y<S;y+=16) ctx.fillRect(tx,ty+y,S,1); },
-                'birch_planks.png': (tx,ty) => { fill(tx,ty,196,179,123,6); ctx.fillStyle='rgba(0,0,0,0.12)'; for(let x=0;x<S;x+=8) ctx.fillRect(tx+x,ty,1,S); },
-                'spruce_planks.png':(tx,ty) => { fill(tx,ty,102,77,46,6); ctx.fillStyle='rgba(0,0,0,0.15)'; for(let x=0;x<S;x+=8) ctx.fillRect(tx+x,ty,1,S); },
-                'log_side.png':     (tx,ty) => { fill(tx,ty,102,77,46,8); ctx.fillStyle='rgba(0,0,0,0.2)'; for(let x=0;x<S;x+=6) ctx.fillRect(tx+x,ty,1,S); },
-                'log_top.png':      (tx,ty) => { fill(tx,ty,90,60,30,6); for(let r=2;r<S/2;r+=4){ctx.strokeStyle=`rgba(0,0,0,0.15)`;ctx.beginPath();ctx.arc(tx+S/2,ty+S/2,r,0,Math.PI*2);ctx.stroke();} },
-                'birch_log.png':    (tx,ty) => { fill(tx,ty,200,195,170,5); ctx.fillStyle='rgba(50,40,30,0.3)'; for(let y=4;y<S;y+=7){ctx.fillRect(tx,ty+y,S,2);} },
-                'birch_log_top.png':(tx,ty) => { fill(tx,ty,185,175,130,6); },
-                'spruce_log.png':   (tx,ty) => { fill(tx,ty,60,40,20,8); ctx.fillStyle='rgba(0,0,0,0.2)'; for(let x=0;x<S;x+=6) ctx.fillRect(tx+x,ty,1,S); },
-                'spruce_log_top.png':(tx,ty)=> { fill(tx,ty,55,35,15,6); },
-                'leaves.png':       (tx,ty) => { fill(tx,ty,50,130,30,15); ctx.fillStyle='rgba(0,0,0,0)'; },
-                'sand.png':         (tx,ty) => fill(tx,ty,218,194,130,8),
-                'gravel.png':       (tx,ty) => fill(tx,ty,142,130,118,14),
-                'glass.png':        (tx,ty) => { ctx.fillStyle='rgba(160,210,240,0.4)'; ctx.fillRect(tx,ty,S,S); ctx.strokeStyle='rgba(200,230,255,0.6)'; ctx.strokeRect(tx+1,ty+1,S-2,S-2); },
-                'bedrock.png':      (tx,ty) => fill(tx,ty,50,50,50,18),
-                'water.png':        (tx,ty) => { ctx.fillStyle='rgba(30,100,220,0.7)'; ctx.fillRect(tx,ty,S,S); },
-                'torch.png':        (tx,ty) => { fill(tx,ty,120,80,40,5); ctx.fillStyle='#FFA500'; ctx.fillRect(tx+S/2-2,ty,4,6); ctx.fillStyle='#FFFF00'; ctx.fillRect(tx+S/2-1,ty,2,3); },
-                'coal_ore.png':     (tx,ty) => { fill(tx,ty,128,128,128,10); ctx.fillStyle='#222'; for(let i=0;i<6;i++){const ox=((i*73)%20)+4,oy=((i*41)%20)+4;ctx.fillRect(tx+ox,ty+oy,4,3);} },
-                'iron_ore.png':     (tx,ty) => { fill(tx,ty,128,128,128,10); ctx.fillStyle='#d4a87a'; for(let i=0;i<6;i++){const ox=((i*73)%20)+4,oy=((i*41)%20)+4;ctx.fillRect(tx+ox,ty+oy,4,3);} },
-                'gold_ore.png':     (tx,ty) => { fill(tx,ty,128,128,128,10); ctx.fillStyle='#FFD700'; for(let i=0;i<6;i++){const ox=((i*73)%20)+4,oy=((i*41)%20)+4;ctx.fillRect(tx+ox,ty+oy,4,3);} },
-                'diamond_ore.png':  (tx,ty) => { fill(tx,ty,128,128,128,10); ctx.fillStyle='#5ff'; for(let i=0;i<6;i++){const ox=((i*73)%20)+4,oy=((i*41)%20)+4;ctx.fillRect(tx+ox,ty+oy,4,3);} },
-                'emerald_ore.png':  (tx,ty) => { fill(tx,ty,128,128,128,10); ctx.fillStyle='#0f0'; for(let i=0;i<6;i++){const ox=((i*73)%20)+4,oy=((i*41)%20)+4;ctx.fillRect(tx+ox,ty+oy,4,3);} },
-                'obsidian.png':     (tx,ty) => fill(tx,ty,25,18,40,6),
-                'clay.png':         (tx,ty) => fill(tx,ty,162,166,182,8),
-                'snow.png':         (tx,ty) => fill(tx,ty,240,245,255,5),
-                'ice.png':          (tx,ty) => { ctx.fillStyle='rgba(120,180,240,0.5)'; ctx.fillRect(tx,ty,S,S); },
-                'netherrack.png':   (tx,ty) => fill(tx,ty,110,30,30,12),
-                'soul_sand.png':    (tx,ty) => { fill(tx,ty,80,60,45,8); ctx.fillStyle='rgba(0,0,0,0.3)'; for(let i=0;i<4;i++) ctx.fillRect(tx+4+i*7,ty+10+i*5,4,4); },
-                'glowstone.png':    (tx,ty) => { fill(tx,ty,210,170,80,10); ctx.fillStyle='rgba(255,240,100,0.5)'; ctx.fillRect(tx,ty,S,S); },
-                'end_stone.png':    (tx,ty) => fill(tx,ty,220,215,165,10),
-                'iron_block.png':   (tx,ty) => { fill(tx,ty,200,200,205,5); grid(tx,ty,195,195,200,16,16,15,15,15); },
-                'gold_block.png':   (tx,ty) => { fill(tx,ty,245,195,30,5); grid(tx,ty,240,190,25,16,16,15,15,5); },
-                'diamond_block.png':(tx,ty) => { fill(tx,ty,60,210,210,5); grid(tx,ty,55,200,200,16,16,10,10,10); },
-                'brick.png':        (tx,ty) => { fill(tx,ty,160,80,60,6); ctx.fillStyle='rgba(120,60,40,0.5)'; for(let y=0;y<S;y+=8){ctx.fillRect(tx,ty+y,S,2); for(let x=(y/8%2)*8;x<S;x+=16) ctx.fillRect(tx+x,ty+y+2,2,6);} },
-                'sandstone_side.png':(tx,ty)=> { fill(tx,ty,218,194,130,5); ctx.fillStyle='rgba(0,0,0,0.15)'; for(let y=0;y<S;y+=8) ctx.fillRect(tx,ty+y,S,1); },
-                'sandstone_top.png':(tx,ty) => fill(tx,ty,222,200,140,4),
-                'sandstone_bottom.png':(tx,ty)=>fill(tx,ty,218,194,130,5),
-                'quartz_side.png':  (tx,ty) => { fill(tx,ty,235,228,218,5); ctx.fillStyle='rgba(0,0,0,0.08)'; for(let y=0;y<S;y+=8) ctx.fillRect(tx,ty+y,S,1); },
-                'quartz_top.png':   (tx,ty) => fill(tx,ty,238,232,222,4),
-                'quartz_bottom.png':(tx,ty) => fill(tx,ty,235,228,218,5),
-                'mycelium_side.png':(tx,ty) => { fill(tx,ty,134,96,60,8); fill(tx,ty,120,90,120,10); ctx.clearRect(tx,ty+8,S,S-8); fill(tx,ty+8,134,96,60,8); },
-                'mycelium_top.png': (tx,ty) => fill(tx,ty,120,90,120,12),
-                'cactus_side.png':  (tx,ty) => { fill(tx,ty,58,120,40,8); ctx.fillStyle='rgba(30,80,20,0.4)'; for(let y=4;y<S;y+=5) ctx.fillRect(tx,ty+y,S,1); },
-                'cactus_top.png':   (tx,ty) => fill(tx,ty,58,120,40,6),
-                'cactus_bottom.png':(tx,ty) => fill(tx,ty,58,120,40,6),
-                'sponge.png':       (tx,ty) => { fill(tx,ty,200,185,60,8); ctx.fillStyle='rgba(0,0,0,0.3)'; for(let i=0;i<20;i++) ctx.fillRect(tx+(i*31%26),ty+(i*17%26),2,2); },
-                'bookshelf.png':    (tx,ty) => { fill(tx,ty,163,126,76,5); ctx.fillStyle='#8B0000'; ctx.fillRect(tx+2,ty+4,S-4,6); ctx.fillRect(tx+2,ty+14,S-4,6); ctx.fillRect(tx+2,ty+22,S-4,6); ctx.fillStyle='#FFD700'; for(let i=3;i<S-3;i+=5) ctx.fillRect(tx+i,ty+4,2,18); },
-                'furnace_side.png': (tx,ty) => grid(tx,ty,120,120,120,8,8,20,20,20),
-                'furnace_top.png':  (tx,ty) => fill(tx,ty,110,110,110,10),
-                'furnace_front.png':(tx,ty) => { grid(tx,ty,120,120,120,8,8,20,20,20); ctx.fillStyle='#FF6600'; ctx.fillRect(tx+8,ty+10,16,12); ctx.fillStyle='#FF2200'; ctx.fillRect(tx+10,ty+12,12,8); },
-                'crafting_side.png':(tx,ty) => { fill(tx,ty,163,126,76,5); ctx.fillStyle='rgba(0,0,0,0.1)'; for(let x=0;x<S;x+=8) ctx.fillRect(tx+x,ty,1,S); },
-                'crafting_top.png': (tx,ty) => { fill(tx,ty,163,126,76,5); ctx.fillStyle='rgba(80,60,40,0.4)'; ctx.fillRect(tx+4,ty+4,S-8,S-8); ctx.fillStyle='rgba(200,160,80,0.3)'; for(let i=0;i<3;i++) for(let j=0;j<3;j++) ctx.fillRect(tx+6+i*8,ty+6+j*8,5,5); },
-                'tnt_side.png':     (tx,ty) => { fill(tx,ty,180,50,50,8); ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font=`bold ${S*0.4}px sans-serif`; ctx.fillText('TNT',tx+2,ty+S*0.65); },
-                'tnt_top.png':      (tx,ty) => fill(tx,ty,200,80,80,10),
-                'tnt_bottom.png':   (tx,ty) => fill(tx,ty,200,80,80,10),
-                'pumpkin_side.png': (tx,ty) => { fill(tx,ty,210,115,20,8); ctx.fillStyle='rgba(0,0,0,0.2)'; for(let y=4;y<S;y+=5) ctx.fillRect(tx,ty+y,S,1); },
-                'pumpkin_top.png':  (tx,ty) => fill(tx,ty,180,100,15,8),
-                'pumpkin_face.png': (tx,ty) => { fill(tx,ty,210,115,20,8); ctx.fillStyle='#111'; ctx.fillRect(tx+6,ty+8,5,5); ctx.fillRect(tx+21,ty+8,5,5); ctx.fillRect(tx+8,ty+18,16,4); ctx.fillRect(tx+8,ty+22,2,3); ctx.fillRect(tx+14,ty+22,2,3); ctx.fillRect(tx+20,ty+22,2,3); },
-                'melon_side.png':   (tx,ty) => { fill(tx,ty,80,160,50,8); ctx.fillStyle='rgba(60,130,40,0.5)'; for(let x=0;x<S;x+=5) ctx.fillRect(tx+x,ty,2,S); },
-                'melon_top.png':    (tx,ty) => fill(tx,ty,90,170,55,8),
-                'redstone_lamp_off.png':(tx,ty)=>fill(tx,ty,120,60,40,8),
-                'hay_side.png':     (tx,ty) => { fill(tx,ty,195,155,40,8); ctx.fillStyle='rgba(0,0,0,0.15)'; for(let y=0;y<S;y+=4) ctx.fillRect(tx,ty+y,S,1); },
-                'hay_top.png':      (tx,ty) => fill(tx,ty,190,150,35,8),
-                'grass_plant.png':  (tx,ty) => {
-                    ctx.clearRect(tx,ty,S,S);
-                    // Draw a simple grass tuft in bottom half
-                    const blades = [[4,20,8,4],[10,16,14,8],[18,18,22,6],[24,20,28,4]];
-                    blades.forEach(([x1,y1,x2,y2])=>{
-                        ctx.fillStyle=`hsl(${108+((x1*7)%16)},${60+((x1*3)%20)}%,${35+((x1*5)%15)}%)`;
-                        ctx.fillRect(tx+x1,ty+y1,x2-x1,y2);
-                    });
-                },
-                // Wool colors
-                'wool_white.png':      (tx,ty)=>fill(tx,ty,240,240,240,5),
-                'wool_red.png':        (tx,ty)=>fill(tx,ty,180,30,30,8),
-                'wool_green.png':      (tx,ty)=>fill(tx,ty,40,140,40,8),
-                'wool_blue.png':       (tx,ty)=>fill(tx,ty,40,60,180,8),
-                'wool_yellow.png':     (tx,ty)=>fill(tx,ty,230,210,30,8),
-                'wool_black.png':      (tx,ty)=>fill(tx,ty,30,30,30,5),
-                'wool_orange.png':     (tx,ty)=>fill(tx,ty,220,110,20,8),
-                'wool_cyan.png':       (tx,ty)=>fill(tx,ty,20,180,180,8),
-                'wool_purple.png':     (tx,ty)=>fill(tx,ty,120,20,180,8),
-                'wool_pink.png':       (tx,ty)=>fill(tx,ty,220,120,160,8),
-                'wool_lime.png':       (tx,ty)=>fill(tx,ty,110,200,30,8),
-                'wool_grey.png':       (tx,ty)=>fill(tx,ty,110,110,110,6),
-                'wool_light_grey.png': (tx,ty)=>fill(tx,ty,180,180,180,6),
-                'wool_magenta.png':    (tx,ty)=>fill(tx,ty,200,50,180,8),
-                'wool_light_blue.png': (tx,ty)=>fill(tx,ty,80,160,220,8),
-            };
-
             const fileToId = {};
-
-            // ── Step 1: Build atlas synchronously from procedural tiles (instant) ──
-            uniqueFiles.forEach((file, index) => {
-                fileToId[file] = index;
-                const tx = (index % ATLAS_COLS) * S;
-                const ty = Math.floor(index / ATLAS_COLS) * S;
-
-                // Procedural special blocks
-                if (file.startsWith('__')) {
-                    ctx.save();
-                    if (file.includes('door_front')) {
-                        ctx.fillStyle='#8B5E3C'; ctx.fillRect(tx,ty,S,S);
-                        ctx.fillStyle='#6B3F1E'; for(let i=0;i<S;i+=8) ctx.fillRect(tx+i,ty,1,S);
-                        ctx.fillRect(tx,ty+S/2-1,S,2);
-                        ctx.fillStyle='#DAA520'; ctx.fillRect(tx+S*0.72,ty+S*0.45,3,5);
-                    } else if (file.includes('door_side')) {
-                        ctx.fillStyle='#7B4F2C'; ctx.fillRect(tx,ty,S,S);
-                        ctx.fillStyle='#5B3010'; for(let i=0;i<S;i+=6) ctx.fillRect(tx,ty+i,S,1);
-                    } else if (file.includes('door_top')||file.includes('door_toph')) {
-                        ctx.fillStyle='#7B4F2C'; ctx.fillRect(tx,ty,S,S);
-                        ctx.fillStyle='#5B3010'; ctx.fillRect(tx,ty+S/2,S,2); ctx.fillRect(tx+S/2,ty,2,S);
-                    } else if (file.includes('chest_front')) {
-                        ctx.fillStyle='#A0722A'; ctx.fillRect(tx,ty,S,S);
-                        ctx.fillStyle='#8B5E1A'; ctx.fillRect(tx+1,ty+S/2,S-2,2); ctx.fillRect(tx+1,ty+1,S-2,2); ctx.fillRect(tx+1,ty+S-3,S-2,2);
-                        ctx.fillStyle='#DAA520'; ctx.fillRect(tx+S/2-3,ty+S/2-4,6,5);
-                        ctx.fillStyle='#B8860B'; ctx.fillRect(tx+S/2-2,ty+S/2-6,4,3);
-                    } else if (file.includes('chest_side')) {
-                        ctx.fillStyle='#A0722A'; ctx.fillRect(tx,ty,S,S);
-                        ctx.fillStyle='#8B5E1A'; ctx.fillRect(tx+1,ty+S/2,S-2,2); ctx.fillRect(tx+1,ty+1,S-2,2);
-                    } else if (file.includes('chest_top')) {
-                        ctx.fillStyle='#B8842A'; ctx.fillRect(tx,ty,S,S);
-                        ctx.fillStyle='#8B5E1A'; ctx.fillRect(tx+S/4,ty+1,S/2,S-2); ctx.fillRect(tx+1,ty+S/4,S-2,S/2);
-                    } else {
-                        ctx.fillStyle='#888'; ctx.fillRect(tx,ty,S,S);
+            
+            const loadTile = (file, index) => {
+                return new Promise((resolve) => {
+                    // ── Procedural textures for special blocks ──
+                    if (file.startsWith('__')) {
+                        const tx = (index % ATLAS_COLS) * S;
+                        const ty = Math.floor(index / ATLAS_COLS) * S;
+                        ctx.save();
+                        if (file.includes('door_front')) {
+                            // Door front – vertical planks with handle
+                            ctx.fillStyle = '#8B5E3C'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#6B3F1E';
+                            for (let i = 0; i < S; i += 8) { ctx.fillRect(tx+i, ty, 1, S); }
+                            ctx.fillRect(tx, ty + S/2 - 1, S, 2);
+                            // handle
+                            ctx.fillStyle = '#DAA520';
+                            ctx.fillRect(tx + S*0.72, ty + S*0.45, 3, 5);
+                        } else if (file.includes('door_side')) {
+                            ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#5B3010';
+                            for (let i = 0; i < S; i += 6) { ctx.fillRect(tx, ty+i, S, 1); }
+                        } else if (file.includes('door_top')) {
+                            ctx.fillStyle = '#7B4F2C'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#5B3010';
+                            ctx.fillRect(tx, ty+S/2, S, 2);
+                            ctx.fillRect(tx+S/2, ty, 2, S);
+                        } else if (file.includes('chest_front')) {
+                            // Chest front – wood body + lock
+                            ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#8B5E1A';
+                            ctx.fillRect(tx+1, ty+S/2, S-2, 2);
+                            ctx.fillRect(tx+1, ty+1, S-2, 2);
+                            ctx.fillRect(tx+1, ty+S-3, S-2, 2);
+                            // lock
+                            ctx.fillStyle = '#DAA520';
+                            ctx.fillRect(tx+S/2-3, ty+S/2-4, 6, 5);
+                            ctx.fillStyle = '#B8860B';
+                            ctx.fillRect(tx+S/2-2, ty+S/2-6, 4, 3);
+                        } else if (file.includes('chest_side')) {
+                            ctx.fillStyle = '#A0722A'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#8B5E1A';
+                            ctx.fillRect(tx+1, ty+S/2, S-2, 2);
+                            ctx.fillRect(tx+1, ty+1, S-2, 2);
+                        } else if (file.includes('chest_top')) {
+                            ctx.fillStyle = '#B8842A'; ctx.fillRect(tx, ty, S, S);
+                            ctx.fillStyle = '#8B5E1A';
+                            ctx.fillRect(tx+S/4, ty+1, S/2, S-2);
+                            ctx.fillRect(tx+1, ty+S/4, S-2, S/2);
+                        } else {
+                            ctx.fillStyle = '#888'; ctx.fillRect(tx, ty, S, S);
+                        }
+                        ctx.restore();
+                        resolve();
+                        return;
                     }
-                    ctx.restore();
-                    return;
-                }
+                    const img = new Image();
+                    img.crossOrigin = "Anonymous";
+                    const assetURL = new URL(`./assets/${file}`, window.location.href).href;
+                    const rootURL  = new URL(`./${file}`,        window.location.href).href;
 
-                // Use procedural generator if available, else solid magenta placeholder
-                if (PROC[file]) {
-                    PROC[file](tx, ty);
-                } else {
-                    ctx.fillStyle = '#FF00FF'; ctx.fillRect(tx, ty, S, S);
-                }
-            });
+                    const drawError = () => {
+                        const tx = (index % ATLAS_COLS) * S;
+                        const ty = Math.floor(index / ATLAS_COLS) * S;
+                        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(tx, ty, S, S);
+                        ctx.fillStyle = '#FF00FF'; ctx.fillRect(tx + S/4, ty + S/4, S/2, S/2);
+                        resolve();
+                    };
 
-            // Assign tile indices
+                    img.onload = () => {
+                        const tx = (index % ATLAS_COLS) * S;
+                        const ty = Math.floor(index / ATLAS_COLS) * S;
+                        ctx.drawImage(img, tx, ty, S, S);
+                        resolve();
+                    };
+
+                    // Try assets/ first, then root, then show error tile
+                    img.onerror = () => {
+                        const img2 = new Image();
+                        img2.crossOrigin = "Anonymous";
+                        img2.onload = () => {
+                            const tx = (index % ATLAS_COLS) * S;
+                            const ty = Math.floor(index / ATLAS_COLS) * S;
+                            ctx.drawImage(img2, tx, ty, S, S);
+                            resolve();
+                        };
+                        img2.onerror = drawError;
+                        cachedFetch(rootURL).then(res => res.blob()).then(blob => {
+                            img2.src = URL.createObjectURL(blob);
+                        }).catch(() => { img2.src = rootURL; });
+                    };
+
+                    // Use cachedFetch → blob URL so the image comes from cache second time
+                    cachedFetch(assetURL).then(res => res.blob()).then(blob => {
+                        img.src = URL.createObjectURL(blob);
+                    }).catch(() => { img.src = assetURL; });
+                });
+            };
+
+            for (let i = 0; i < count; i++) {
+                await loadTile(uniqueFiles[i], i);
+                fileToId[uniqueFiles[i]] = i;
+            }
+
             Object.values(BLOCKS).forEach(b => {
-                if (b.files) b.tiles = b.files.map(f => fileToId[f] ?? 0);
+                if(b.files) {
+                    b.tiles = b.files.map(f => fileToId[f]);
+                }
             });
-            foliageAtlasTiles = FOLIAGE_TYPES.map(ft => fileToId[ft.file] ?? 0);
-            _buildFoliageThresholds();
 
-            // Build texture immediately from procedural atlas
             const tex = new THREE.CanvasTexture(canvas);
             tex.magFilter = THREE.NearestFilter;
             tex.minFilter = THREE.NearestFilter;
-
-            // ── Step 2: Try loading real image files in the background (non-blocking) ──
-            const tryUpgrade = (file, index) => {
-                const tx = (index % ATLAS_COLS) * S;
-                const ty = Math.floor(index / ATLAS_COLS) * S;
-                if (file.startsWith('__')) return;
-                const img = new Image();
-                img.onload = () => {
-                    ctx.drawImage(img, tx, ty, S, S);
-                    tex.needsUpdate = true;
-                };
-                // Try assets/ first, silently fall back — no onerror needed, procedural already drawn
-                img.src = `./assets/${file}`;
-            };
-            uniqueFiles.forEach((file, i) => tryUpgrade(file, i));
-
+            tex.image = canvas;
+            // ── Save built atlas to IndexedDB for next session ──
+            try { saveAtlasToIDB(canvas.toDataURL('image/png')); } catch(e) {}
             return tex;
-          } catch(e) {
-            console.error('createAtlas failed:', e);
-            // Return a blank 256x256 texture so the game still loads
-            const c = document.createElement('canvas'); c.width = 256; c.height = 256;
-            const t = new THREE.CanvasTexture(c);
-            t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-            return t;
-          }
         }
 
         function getBlock(x, y, z) {
@@ -2213,101 +2155,76 @@
             return mesh;
         }
 
-        function _buildFoliageThresholds() {
-            let total = FOLIAGE_TYPES.reduce((s, f) => s + f.weight, 0);
-            let acc = 0;
-            FOLIAGE_THRESHOLDS = FOLIAGE_TYPES.map(f => { acc += f.weight; return acc / total; });
-        }
-
-        function buildFoliageChunk(cx, cz) {
-            if (!foliageAtlasTiles.length) return null;
-            const pos = [], uv = [], idx = [], col = [];
+        function buildGrassPlantMesh(cx, cz) {
+            if (!grassPlantTexture) return null;
+            const positions = [], uvs = [], indices = [];
             let count = 0;
 
             for (let x = 0; x < CHUNK_SIZE; x++) {
                 for (let z = 0; z < CHUNK_SIZE; z++) {
-                    const wx = cx * CHUNK_SIZE + x, wz = cz * CHUNK_SIZE + z;
-                    // Find surface y
-                    let sy = -1;
+                    const wx = cx * CHUNK_SIZE + x;
+                    const wz = cz * CHUNK_SIZE + z;
+                    // Find the topmost solid block in this column
                     for (let y = 31; y >= 1; y--) {
-                        const b = getBlock(wx, y, wz);
-                        if (b !== 0) { sy = y; break; }
+                        const type = getBlock(wx, y, wz);
+                        if (type === 0) continue; // air — keep scanning down
+                        // Only place grass plants on grass blocks (id 1) with air above
+                        if (type === 1 && getBlock(wx, y + 1, wz) === 0) {
+                            // ~50% random coverage using hash
+                            if (hash(wx * 73856093, wz * 19349663) % 2 === 0) {
+                                const gy = y + 1; // one block above the grass surface
+                                // Cross: two diagonal quads (both rendered double-sided via index winding)
+                                // Quad 1: NW-SE diagonal
+                                positions.push(
+                                    wx,     gy,     wz,
+                                    wx,     gy + 1, wz,
+                                    wx + 1, gy + 1, wz + 1,
+                                    wx + 1, gy,     wz + 1
+                                );
+                                uvs.push(0, 0,  0, 1,  1, 1,  1, 0);
+                                // Front face
+                                indices.push(count, count + 1, count + 2, count, count + 2, count + 3);
+                                // Back face
+                                indices.push(count + 2, count + 1, count, count + 3, count + 2, count);
+                                count += 4;
+
+                                // Quad 2: NE-SW diagonal
+                                positions.push(
+                                    wx + 1, gy,     wz,
+                                    wx + 1, gy + 1, wz,
+                                    wx,     gy + 1, wz + 1,
+                                    wx,     gy,     wz + 1
+                                );
+                                uvs.push(0, 0,  0, 1,  1, 1,  1, 0);
+                                // Front face
+                                indices.push(count, count + 1, count + 2, count, count + 2, count + 3);
+                                // Back face
+                                indices.push(count + 2, count + 1, count, count + 3, count + 2, count);
+                                count += 4;
+                            }
+                        }
+                        break; // Stop once we hit any solid block (grass or not)
                     }
-                    if (sy < 0) continue;
-
-                    // Only spawn on grass (type 1) with air above
-                    const surfaceType = getBlock(wx, sy, wz);
-                    if (surfaceType !== 1) continue;
-                    if (getBlock(wx, sy + 1, wz) !== 0) continue;
-
-                    // Deterministic spawn check using hash — ~35% of grass tiles get foliage
-                    const h = hash(wx * 7 + 3, wz * 13 + 7) % 10000;
-                    if (h > 3500) continue;
-
-                    // Pick foliage type from weighted table
-                    const t = (hash(wx * 31, wz * 17) % 10000) / 10000;
-                    let typeIdx = FOLIAGE_THRESHOLDS.findIndex(thresh => t < thresh);
-                    if (typeIdx < 0) typeIdx = 0;
-
-                    const tileIdx = foliageAtlasTiles[typeIdx];
-                    const u0 = (tileIdx % ATLAS_COLS) / ATLAS_COLS;
-                    const v0 = 1 - (Math.floor(tileIdx / ATLAS_COLS) + 1) / ATLAS_ROWS;
-                    const us = 1 / ATLAS_COLS, vs = 1 / ATLAS_ROWS;
-
-                    // World position of foliage base (center of block, on top of surface)
-                    const fx = wx + 0.5, fy = sy + 1, fz = wz + 0.5;
-                    const r = 0.5; // half-width of cross quad
-                    const h_plant = 0.4; // short grass height
-                    const brightness = 0.95;
-
-                    const quads = [
-                        [[fx-r, fy,         fz-r], [fx-r, fy+h_plant, fz-r], [fx+r, fy+h_plant, fz+r], [fx+r, fy,         fz+r]],
-                        [[fx+r, fy,         fz-r], [fx+r, fy+h_plant, fz-r], [fx-r, fy+h_plant, fz+r], [fx-r, fy,         fz+r]],
-                    ];
-
-                    quads.forEach(verts => {
-                        verts.forEach(([vx, vy, vz]) => {
-                            pos.push(vx, vy, vz);
-                            col.push(brightness, brightness, brightness);
-                        });
-                        // UVs: bottom-left, top-left, top-right, bottom-right
-                        uv.push(
-                            u0,      v0,
-                            u0,      v0 + vs,
-                            u0 + us, v0 + vs,
-                            u0 + us, v0
-                        );
-                        idx.push(count, count+1, count+2,  count, count+2, count+3);
-                        count += 4;
-                    });
                 }
             }
 
             if (count === 0) return null;
 
             const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uv,  2));
-            geo.setAttribute('color',    new THREE.Float32BufferAttribute(col, 3));
-            geo.setIndex(idx);
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
 
-            if (!foliageMaterial) {
-                foliageMaterial = new THREE.MeshBasicMaterial({
-                    map: atlas,
-                    vertexColors: true,
-                    transparent: true,
-                    alphaTest: 0.5,
-                    side: THREE.DoubleSide,
-                    depthWrite: false,
-                });
-            }
-            // Ensure material uses the latest atlas if it was rebuilt
-            foliageMaterial.map = atlas;
+            const mat = new THREE.MeshBasicMaterial({
+                map: grassPlantTexture,
+                side: THREE.DoubleSide,
+                transparent: true,
+                alphaTest: 0.3,
+                depthWrite: false,
+            });
 
-            const mesh = new THREE.Mesh(geo, foliageMaterial);
-            mesh.castShadow = false;
-            mesh.receiveShadow = false;
-            return mesh;
+            return new THREE.Mesh(geo, mat);
         }
 
         function refreshChunk(wx, wz) {
@@ -2316,18 +2233,20 @@
             if(chunkMeshes[k]) {
                 scene.remove(chunkMeshes[k]);
                 clickables = clickables.filter(c => c !== chunkMeshes[k]);
-                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose();
+                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose(); // ── Perf: free GPU memory
                 delete chunkMeshes[k];
-            }
-            if (foliageMeshes[k]) {
-                scene.remove(foliageMeshes[k]);
-                if (foliageMeshes[k].geometry) foliageMeshes[k].geometry.dispose();
-                delete foliageMeshes[k];
             }
             const m = buildChunk(cx, cz);
             if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
-            const fm = buildFoliageChunk(cx, cz);
-            if(fm) { scene.add(fm); foliageMeshes[k] = fm; }
+            // Rebuild grass plant mesh for this chunk
+            if (grassPlantMeshes[k]) {
+                scene.remove(grassPlantMeshes[k]);
+                if (grassPlantMeshes[k].geometry) grassPlantMeshes[k].geometry.dispose();
+                if (grassPlantMeshes[k].material) grassPlantMeshes[k].material.dispose();
+                delete grassPlantMeshes[k];
+            }
+            const gm = buildGrassPlantMesh(cx, cz);
+            if (gm) { scene.add(gm); grassPlantMeshes[k] = gm; }
             // Reset chunk tracker so updateWorld won't skip this chunk area
             lastPlayerCX = null; lastPlayerCZ = null;
         }
@@ -2984,6 +2903,7 @@
 
         function updateWorld() {
             const px = Math.floor(playerGroup.position.x/CHUNK_SIZE), pz = Math.floor(playerGroup.position.z/CHUNK_SIZE);
+            // ── Performance: skip if player hasn't changed chunk ──
             if (px === lastPlayerCX && pz === lastPlayerCZ) return;
             lastPlayerCX = px; lastPlayerCZ = pz;
 
@@ -2991,17 +2911,11 @@
             for(let x=px-RENDER_DIST; x<=px+RENDER_DIST; x++) {
                 for(let z=pz-RENDER_DIST; z<=pz+RENDER_DIST; z++) {
                     const k = `${x},${z}`;
-                    if(!chunkMeshes[k]) {
-                        const m = buildChunk(x, z);
-                        if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
-                    }
-                    if(!foliageMeshes[k]) {
-                        const fm = buildFoliageChunk(x, z);
-                        if(fm) { scene.add(fm); foliageMeshes[k] = fm; }
-                    }
+                    if(!chunkMeshes[k]) { const m = buildChunk(x, z); if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }}
+                    if(!grassPlantMeshes[k]) { const gm = buildGrassPlantMesh(x, z); if(gm) { scene.add(gm); grassPlantMeshes[k] = gm; }}
                 }
             }
-            // Unload chunks out of range
+            // ── Performance: unload chunks that are now out of range ──
             const UNLOAD_DIST = RENDER_DIST + 2;
             for (const k in chunkMeshes) {
                 const [cx, cz] = k.split(',').map(Number);
@@ -3013,13 +2927,15 @@
                     delete chunkMeshes[k];
                 }
             }
-            for (const k in foliageMeshes) {
+            // Unload grass plant meshes out of range
+            for (const k in grassPlantMeshes) {
                 const [cx, cz] = k.split(',').map(Number);
                 if (Math.abs(cx - px) > UNLOAD_DIST || Math.abs(cz - pz) > UNLOAD_DIST) {
-                    const mesh = foliageMeshes[k];
-                    scene.remove(mesh);
-                    if (mesh.geometry) mesh.geometry.dispose();
-                    delete foliageMeshes[k];
+                    const gm = grassPlantMeshes[k];
+                    scene.remove(gm);
+                    if (gm.geometry) gm.geometry.dispose();
+                    if (gm.material) gm.material.dispose();
+                    delete grassPlantMeshes[k];
                 }
             }
         }
@@ -3305,124 +3221,158 @@
         }
 
         async function init() {
-            // ── Register auth listener FIRST before anything can crash ──
-            const showSignIn = () => {
-                setMenuProgress(100, 'SIGN IN TO PLAY');
-                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
-                document.getElementById('start-btn').style.display = 'block';
-            };
-
-            document.getElementById('start-btn').onclick = async () => {
-                try {
-                    const provider = new GoogleAuthProvider();
-                    await signInWithPopup(auth, provider);
-                } catch(e) { console.error('sign in failed', e); }
-            };
-
-            // ── Build atlas & scene (synchronous after createAtlas) ──
             setMenuProgress(10, 'LOADING TEXTURES...');
             atlas = await createAtlas();
 
+            // ── Load grass plant cross texture ──
+            await (async () => {
+                const urls = [
+                    new URL('./assets/grass_plant.png', window.location.href).href,
+                    new URL('./grass_plant.png', window.location.href).href
+                ];
+                for (const url of urls) {
+                    try {
+                        const res = await cachedFetch(url);
+                        if (!res || !res.ok) continue;
+                        const blob = await res.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        await new Promise((resolve) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                const c = document.createElement('canvas');
+                                c.width = img.width; c.height = img.height;
+                                c.getContext('2d').drawImage(img, 0, 0);
+                                grassPlantTexture = new THREE.CanvasTexture(c);
+                                grassPlantTexture.magFilter = THREE.NearestFilter;
+                                grassPlantTexture.minFilter = THREE.NearestFilter;
+                                resolve();
+                            };
+                            img.onerror = resolve; // silently skip if not found
+                            img.src = blobUrl;
+                        });
+                        if (grassPlantTexture) break; // loaded successfully
+                    } catch (e) { /* try next path */ }
+                }
+            })();
             setMenuProgress(30, 'BUILDING SCENE...');
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x78A7FF, _isLowEnd ? 0.045 : 0.027);
+            // ── Minecraft-style exponential fog ──
+            const fogDensity = _isLowEnd ? 0.045 : 0.027;
+            scene.fog = new THREE.FogExp2(0x78A7FF, fogDensity);
             scene.background = new THREE.Color(0x78A7FF);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100);
-            cameraPivot.add(camera);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
+
+            // ── Performance: limit pixel ratio, enable optimisations ──
             renderer = new THREE.WebGLRenderer({ antialias: !isTouch && !_isLowEnd, powerPreference: 'high-performance' });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, _isLowEnd ? 1 : (isTouch ? 1.5 : 2)));
-            renderer.shadowMap.enabled = false;
+            renderer.shadowMap.enabled = false; // Minecraft uses baked vertex AO, not dynamic shadows
             renderer.sortObjects = false;
             document.body.appendChild(renderer.domElement);
-            scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6));
+            
+            scene.add(ambientLight = new THREE.AmbientLight(0xffffff, 0.6)); 
             sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            sunLight.castShadow = false;
-            scene.add(sunLight); scene.add(sunLight.target);
-            raycaster = new THREE.Raycaster();
-            selectionBox = new THREE.Mesh(
-                new THREE.BoxGeometry(1.01, 1.01, 1.01),
-                new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 })
-            );
-            scene.add(selectionBox);
+            sunLight.castShadow = false; // shadow maps disabled — using vertex AO instead
+            scene.add(sunLight); scene.add(sunLight.target); 
 
+            raycaster = new THREE.Raycaster();
+            selectionBox = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), new THREE.MeshBasicMaterial({ color: 0, wireframe: true, transparent: true, opacity: 0.4 }));
+            scene.add(selectionBox); 
+            
             setMenuProgress(50, 'BUILDING WORLD...');
+            // Use a simple box as placeholder — the real skin is loaded in startGame().
+            // This removes the biggest loading bottleneck (waiting for model1.glb).
             externalModel = new THREE.Mesh(
                 new THREE.BoxGeometry(0.5, 1.6, 0.5),
                 new THREE.MeshLambertMaterial({ color: 0x4488ff })
             );
             externalModel.position.y = -PLAYER_HEIGHT;
+            externalModel.castShadow = true;
             playerGroup.add(externalModel);
             modelLoaded = true;
 
-            // Clouds
+            setMenuProgress(70, 'CHECKING AUTH...');
+            // ── Minecraft-style blocky clouds ──
             const cloudGroup = new THREE.Group();
             cloudGroup.position.y = 42;
             const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.88 });
-            [[0,0,18,5],[14,4,12,6],[-12,3,10,5],[20,-6,16,5],[-20,-8,14,6],
-             [6,10,10,4],[-6,-12,20,5],[26,2,8,5],[-24,6,12,4],[10,-14,14,6]
-            ].forEach(([px,pz,w,d]) => {
+            const cloudPatches = [
+                [0,0,18,5],[14,4,12,6],[-12,3,10,5],[20,-6,16,5],[-20,-8,14,6],
+                [6,10,10,4],[-6,-12,20,5],[26,2,8,5],[-24,6,12,4],[10,-14,14,6]
+            ];
+            cloudPatches.forEach(([px,pz,w,d]) => {
                 const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, d), cloudMat);
                 m.position.set(px, (Math.random()-0.5)*0.4, pz);
                 cloudGroup.add(m);
             });
-            clouds = cloudGroup; scene.add(cloudGroup);
+            clouds = cloudGroup;
+            scene.add(cloudGroup);
 
-            // Sun / Moon / Stars
-            sunMesh = new THREE.Mesh(new THREE.PlaneGeometry(7,7), new THREE.MeshBasicMaterial({ color:0xFFFFA0, side:THREE.DoubleSide, fog:false }));
-            sunMesh.renderOrder = -1; scene.add(sunMesh);
-            moonMesh = new THREE.Mesh(new THREE.PlaneGeometry(5,5), new THREE.MeshBasicMaterial({ color:0xCCDDFF, side:THREE.DoubleSide, fog:false }));
-            moonMesh.renderOrder = -1; scene.add(moonMesh);
+            // ── Sun disc (Minecraft-style square white disc) ──
+            const sunGeo = new THREE.PlaneGeometry(7, 7);
+            const sunMat = new THREE.MeshBasicMaterial({ color: 0xFFFFA0, side: THREE.DoubleSide, fog: false });
+            sunMesh = new THREE.Mesh(sunGeo, sunMat);
+            sunMesh.renderOrder = -1;
+            scene.add(sunMesh);
+
+            // ── Moon disc (slightly blue-white) ──
+            const moonGeo = new THREE.PlaneGeometry(5, 5);
+            const moonMat = new THREE.MeshBasicMaterial({ color: 0xCCDDFF, side: THREE.DoubleSide, fog: false });
+            moonMesh = new THREE.Mesh(moonGeo, moonMat);
+            moonMesh.renderOrder = -1;
+            scene.add(moonMesh);
+
+            // ── Stars: random points on upper hemisphere ──
             const starCount = _isLowEnd ? 300 : 700;
             const starPos = new Float32Array(starCount * 3);
             for (let i = 0; i < starCount; i++) {
-                const theta = Math.random()*Math.PI*2, phi = Math.acos(Math.random()), r = 75;
-                starPos[i*3]=r*Math.sin(phi)*Math.cos(theta); starPos[i*3+1]=r*Math.cos(phi); starPos[i*3+2]=r*Math.sin(phi)*Math.sin(theta);
+                const theta = Math.random() * Math.PI * 2;
+                const phi   = Math.acos(Math.random()); // upper hemisphere only
+                const r     = 75;
+                starPos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+                starPos[i*3+1] = r * Math.cos(phi);
+                starPos[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
             }
             const starGeo = new THREE.BufferGeometry();
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-            starsMesh = new THREE.Points(starGeo, new THREE.PointsMaterial({ color:0xffffff, size:0.35, transparent:true, opacity:0, fog:false }));
+            starsMesh = new THREE.Points(starGeo,
+                new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, transparent: true, opacity: 0, fog: false }));
             scene.add(starsMesh);
-
             setupInput(); updateUI();
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth/window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            });
 
-            // ── Now wait for Firebase auth ──
+            document.getElementById('start-btn').onclick = async () => {
+                const provider = new GoogleAuthProvider();
+                try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
+            };
+            window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
             setMenuProgress(90, 'CHECKING AUTH...');
-            const authTimeout = setTimeout(showSignIn, 6000);
-
-            try {
-                await setPersistence(auth, browserLocalPersistence);
-            } catch(e) { /* ignore — continue with default persistence */ }
-
-            onAuthStateChanged(auth, (user) => {
+            // Safety timeout: if Firebase doesn't respond in 5s, show sign-in anyway
+            const authTimeout = setTimeout(() => {
+                setMenuProgress(100, 'SIGN IN TO PLAY');
+                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
+                document.getElementById('start-btn').style.display = 'block';
+            }, 5000);
+            setPersistence(auth, browserLocalPersistence).then(() => {
+                onAuthStateChanged(auth, (user) => {
+                    clearTimeout(authTimeout);
+                    setMenuProgress(100, 'READY!');
+                    if (user) {
+                        startGame(user);
+                    } else {
+                        document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
+                        document.getElementById('start-btn').style.display = 'block';
+                    }
+                });
+            }).catch(() => {
                 clearTimeout(authTimeout);
-                if (user) {
-                    startGame(user).catch(err => {
-                        console.error('startGame crashed:', err);
-                        // Game failed to start — hide join screen, show world
-                        const js = document.getElementById('join-loading-screen');
-                        if (js) js.classList.remove('visible');
-                        running = true;
-                        animate();
-                    });
-                } else {
-                    showSignIn();
-                }
+                document.getElementById('loading-text').innerText = 'SIGN IN TO PLAY';
+                document.getElementById('start-btn').style.display = 'block';
             });
         }
-        let last = performance.now();
-        init().catch(err => {
-            console.error('init crashed:', err);
-            document.getElementById('loading-text').innerText = 'ERROR — PLEASE REFRESH';
-            document.getElementById('start-btn').style.display = 'block';
-        });
+        let last = performance.now(); init();
     </script>
 </body>
 </html>
