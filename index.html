@@ -746,7 +746,7 @@
         const PLAYER_RADIUS = 0.3;
         const DAY_LENGTH_SECONDS = 300; 
         
-        let currentMineDelay = 400; 
+        let currentMineDelay = 800; 
         const MOVE_THRESHOLD = 15;
 
         let currentUser = null;
@@ -853,7 +853,17 @@
                    hardness: 1.5, isDoor: true, isDoorTop: true, transparent: true, inShop: false },
             103: { name: 'Chest', price: 20, sellPrice: 6,
                    files: ['__chest_side.png','__chest_side.png','__chest_top.png','__chest_top.png','__chest_front.png','__chest_side.png'],
-                   hardness: 2.5, isChest: true }
+                   hardness: 2.5, isChest: true },
+            // ── SLABS (half-height) ──
+            104: { name: 'Stone Slab',   price: 3, sellPrice: 1, files: ['stone.png','stone.png','stone.png','stone.png','stone.png','stone.png'], hardness: 1.5, isSlab: true },
+            105: { name: 'Wood Slab',    price: 3, sellPrice: 1, files: ['planks.png','planks.png','planks.png','planks.png','planks.png','planks.png'], hardness: 1.5, isSlab: true },
+            106: { name: 'Cobble Slab',  price: 2, sellPrice: 1, files: ['cobblestone.png','cobblestone.png','cobblestone.png','cobblestone.png','cobblestone.png','cobblestone.png'], hardness: 2.0, isSlab: true },
+            107: { name: 'Brick Slab',   price: 4, sellPrice: 1, files: ['bricks.png','bricks.png','bricks.png','bricks.png','bricks.png','bricks.png'], hardness: 2.0, isSlab: true },
+            // ── STAIRS (L-shaped, facing stored in blockStates) ──
+            108: { name: 'Stone Stair',  price: 4, sellPrice: 1, files: ['stone.png','stone.png','stone.png','stone.png','stone.png','stone.png'], hardness: 1.5, isStair: true },
+            109: { name: 'Wood Stair',   price: 4, sellPrice: 1, files: ['planks.png','planks.png','planks.png','planks.png','planks.png','planks.png'], hardness: 1.5, isStair: true },
+            110: { name: 'Cobble Stair', price: 3, sellPrice: 1, files: ['cobblestone.png','cobblestone.png','cobblestone.png','cobblestone.png','cobblestone.png','cobblestone.png'], hardness: 2.0, isStair: true },
+            111: { name: 'Brick Stair',  price: 5, sellPrice: 1, files: ['bricks.png','bricks.png','bricks.png','bricks.png','bricks.png','bricks.png'], hardness: 2.0, isStair: true }
         };
 
         let scene, camera, renderer, raycaster, atlas, sunLight, ambientLight, clouds;
@@ -872,13 +882,16 @@
 
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
+        let mineTargetKey = null, mineHits = 0; // hardness-based progressive breaking
         let sharedChunkMaterial = null;
         let grassPlantTexture = null;
         let grassPlantMeshes = {};
-        const brokenGrassPlants = new Set(); // "wx,wy,wz" keys of manually broken plants
+        const brokenGrassPlants = new Set();
+        const torchLights = {}; // "x,y,z" → THREE.PointLight // "wx,wy,wz" keys of manually broken plants
 
         // ── SOUND SYSTEM ──
-        const sounds = {};
+        const soundBuffers = {}; // name → ArrayBuffer (raw, not yet decoded)
+        const soundDecoded = {}; // name → AudioBuffer (decoded, ready to play)
         const SOUND_FILES = { click: 'click.mp3', break: 'break.mp3', walk: 'walk.mp3', place: 'place.mp3' };
         let audioCtx = null;
 
@@ -887,30 +900,35 @@
             return audioCtx;
         }
 
+        // Just fetch and store raw bytes — no AudioContext needed yet
         async function loadSounds() {
             for (const [name, file] of Object.entries(SOUND_FILES)) {
                 for (const base of [`./assets/${file}`, `./${file}`]) {
                     try {
                         const res = await fetch(base);
                         if (!res.ok) continue;
-                        const buf = await res.arrayBuffer();
-                        const ctx = getAudioCtx();
-                        sounds[name] = await ctx.decodeAudioData(buf);
+                        soundBuffers[name] = await res.arrayBuffer();
                         break;
                     } catch(e) { /* try next path */ }
                 }
             }
         }
 
-        function playSound(name, volume = 1.0, pitchVariance = 0.08) {
-            const buf = sounds[name];
-            if (!buf) return;
+        async function playSound(name, volume = 1.0, pitchVariance = 0.08) {
             try {
+                // Decode lazily on first play (requires user gesture to have happened)
+                if (!soundDecoded[name]) {
+                    if (!soundBuffers[name]) return;
+                    const ctx = getAudioCtx();
+                    // decodeAudioData consumes the buffer, so slice a copy
+                    soundDecoded[name] = await ctx.decodeAudioData(soundBuffers[name].slice(0));
+                }
                 const ctx = getAudioCtx();
-                if (ctx.state === 'suspended') ctx.resume();
+                // Resume if browser auto-suspended it
+                if (ctx.state === 'suspended') await ctx.resume();
                 const src = ctx.createBufferSource();
                 const gain = ctx.createGain();
-                src.buffer = buf;
+                src.buffer = soundDecoded[name];
                 src.playbackRate.value = 1 + (Math.random() - 0.5) * pitchVariance;
                 gain.gain.value = volume;
                 src.connect(gain);
@@ -1472,14 +1490,18 @@
                         const key = `${Math.floor(d.x)},${Math.floor(d.y)},${Math.floor(d.z)}`;
                         if (d.action === 'PLACE') {
                             world[key] = d.id;
-                            if (d.id === 10) activeTorches.push({x:d.x, y:d.y, z:d.z, k:key});
+                            if (d.id === 10) { activeTorches.push({x:d.x, y:d.y, z:d.z, k:key}); addTorchLight(d.x, d.y, d.z, key); }
                             // Restore door facing on load
                             if (BLOCKS[d.id] && BLOCKS[d.id].isDoor && d.facing !== undefined) {
                                 blockStates[key] = { open: false, facing: d.facing };
                             }
+                            // Restore stair facing on load
+                            if (BLOCKS[d.id] && BLOCKS[d.id].isStair && d.facing !== undefined) {
+                                blockStates[key] = { facing: d.facing };
+                            }
                         } else if (d.action === 'BREAK') {
                             world[key] = 0;
-                            if (d.prevId === 10) activeTorches = activeTorches.filter(t => t.k !== key);
+                            if (d.prevId === 10) { activeTorches = activeTorches.filter(t => t.k !== key); removeTorchLight(key); }
                             // Clean up door state
                             if (d.prevId === 101 || d.prevId === 102) {
                                 delete blockStates[key];
@@ -2094,22 +2116,84 @@
             return (y > h - 3) ? 2 : 3;
         }
 
+        // ── emitBox: emit all 6 faces of a sub-block box into geometry arrays ──
+        // Handles UV scaling for partial heights/widths so textures aren't stretched.
+        function emitBox(P, Nm, UV, C, I, cnt, wx, wy, wz, x0,x1,y0,y1,z0,z1, tiles) {
+            const h=y1-y0, w=x1-x0, d=z1-z0;
+            // [normal, 4 verts, tile index, ao, vFrac, uFrac]
+            const boxFaces = [
+                { n:[1,0,0],  vts:[[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]], ti:tiles[0], ao:0.8, vFrac:h, uFrac:d },
+                { n:[-1,0,0], vts:[[x0,y0,z1],[x0,y1,z1],[x0,y1,z0],[x0,y0,z0]], ti:tiles[1], ao:0.8, vFrac:h, uFrac:d },
+                { n:[0,1,0],  vts:[[x0,y1,z1],[x1,y1,z1],[x1,y1,z0],[x0,y1,z0]], ti:tiles[2], ao:1.0, vFrac:d, uFrac:w },
+                { n:[0,-1,0], vts:[[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]], ti:tiles[3], ao:0.5, vFrac:d, uFrac:w },
+                { n:[0,0,1],  vts:[[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],[x0,y0,z1]], ti:tiles[4], ao:0.9, vFrac:h, uFrac:w },
+                { n:[0,0,-1], vts:[[x0,y0,z0],[x0,y1,z0],[x1,y1,z0],[x1,y0,z0]], ti:tiles[5], ao:0.9, vFrac:h, uFrac:w },
+            ];
+            for (const f of boxFaces) {
+                const base = cnt.v;
+                for (const [vx,vy,vz] of f.vts) {
+                    P.push(wx+vx, wy+vy, wz+vz); Nm.push(...f.n); C.push(f.ao, f.ao, f.ao);
+                }
+                const ti = f.ti;
+                const u = (ti % ATLAS_COLS) / ATLAS_COLS;
+                const v = 1 - (Math.floor(ti / ATLAS_COLS) + 1) / ATLAS_ROWS;
+                const uS = 1/ATLAS_COLS, vS = 1/ATLAS_ROWS;
+                UV.push(u, v,  u, v+vS*f.vFrac,  u+uS*f.uFrac, v+vS*f.vFrac,  u+uS*f.uFrac, v);
+                I.push(base, base+1, base+2, base, base+2, base+3);
+                cnt.v += 4;
+            }
+        }
+
         function buildChunk(cx, cz) {
-            const pos=[], norm=[], uv=[], color=[], idx=[];
-            let count = 0;
+            // Two geometry sets: solid (opaque) and transparent
+            const sPos=[], sNorm=[], sUV=[], sColor=[], sIdx=[];
+            const tPos=[], tNorm=[], tUV=[], tColor=[], tIdx=[];
+            let sCount = 0, tCount = 0;
+
             for(let x=0; x<CHUNK_SIZE; x++) {
                 for(let z=0; z<CHUNK_SIZE; z++) {
                     for(let y=0; y<32; y++) {
                         const wx = cx*CHUNK_SIZE+x, wz = cz*CHUNK_SIZE+z;
                         const type = getBlock(wx, y, wz);
                         if(type === 0 || !BLOCKS[type]) continue;
-                        // Open doors are handled as separate meshes – skip in chunk
                         if (BLOCKS[type].isDoor) {
                             const dk = `${wx},${y},${wz}`;
                             if (blockStates[dk] && blockStates[dk].open) continue;
                         }
                         const isTorch = BLOCKS[type].isTorch;
                         const isDoor  = BLOCKS[type].isDoor && (!blockStates[`${wx},${y},${wz}`] || !blockStates[`${wx},${y},${wz}`].open);
+                        // Torches go in solid bucket (tiny, no occlusion issue)
+                        const isTransp = !!(BLOCKS[type].transparent) && !isTorch;
+                        const P=isTransp?tPos:sPos, Nm=isTransp?tNorm:sNorm;
+                        const UV=isTransp?tUV:sUV, C=isTransp?tColor:sColor, I=isTransp?tIdx:sIdx;
+
+                        // ── Slab: bottom-half box ──
+                        if (BLOCKS[type].isSlab) {
+                            const cnt = { v: isTransp ? tCount : sCount };
+                            emitBox(P, Nm, UV, C, I, cnt, wx, y, wz, 0,1, 0,0.5, 0,1, BLOCKS[type].tiles);
+                            if(isTransp) tCount = cnt.v; else sCount = cnt.v;
+                            continue;
+                        }
+
+                        // ── Stair: bottom half + upper step facing away from player ──
+                        if (BLOCKS[type].isStair) {
+                            const cnt = { v: isTransp ? tCount : sCount };
+                            const facing = blockStates[`${wx},${y},${wz}`]?.facing ?? 0;
+                            // Bottom half: full block width/depth, half height
+                            emitBox(P, Nm, UV, C, I, cnt, wx, y, wz, 0,1, 0,0.5, 0,1, BLOCKS[type].tiles);
+                            // Upper step: full-width, upper half — depth determined by facing
+                            const stepBoxes = [
+                                [0,1, 0.5,1, 0.5,1],  // facing 0: step at +z half
+                                [0.5,1, 0.5,1, 0,1],  // facing 1: step at +x half
+                                [0,1, 0.5,1, 0,0.5],  // facing 2: step at -z half
+                                [0,0.5, 0.5,1, 0,1],  // facing 3: step at -x half
+                            ];
+                            const sb = stepBoxes[facing] || stepBoxes[0];
+                            emitBox(P, Nm, UV, C, I, cnt, wx, y, wz, sb[0],sb[1],sb[2],sb[3],sb[4],sb[5], BLOCKS[type].tiles);
+                            if(isTransp) tCount = cnt.v; else sCount = cnt.v;
+                            continue;
+                        }
+
                         const faces = [
                             { n:[1,0,0],  v:[1,0,0, 1,1,0, 1,1,1, 1,0,1], ao:0.8 },
                             { n:[-1,0,0], v:[0,0,1, 0,1,1, 0,1,0, 0,0,0], ao:0.8 },
@@ -2121,39 +2205,69 @@
                         faces.forEach((f, fi) => {
                             const nType = getBlock(wx+f.n[0], y+f.n[1], wz+f.n[2]);
                             if (!isTorch && !isDoor) if(nType !== 0 && (!BLOCKS[nType].transparent || nType === type)) return;
+                            const base = isTransp ? tCount : sCount;
                             for(let i=0; i<4; i++) {
                                 let vx = f.v[i*3], vy = f.v[i*3+1], vz = f.v[i*3+2];
                                 if(isTorch) { vx = 0.4375 + vx*0.125; vy = vy*0.625; vz = 0.4375 + vz*0.125; }
-                                // Closed door: thin slab (0.075 thick) centred front face
-                                else if(isDoor) { vx = 0.4625 + vx*0.075; vy = vy; vz = vz; }
-                                pos.push(wx+vx, y+vy, wz+vz); norm.push(...f.n); 
-                                if(isTorch) color.push(1.5, 1.3, 1.0); else color.push(f.ao, f.ao, f.ao);
+                                // Door: 6/16 thick, centred — visibly solid, not a sliver
+                                else if(isDoor) { vx = 0.3125 + vx*0.375; }
+                                P.push(wx+vx, y+vy, wz+vz); Nm.push(...f.n);
+                                if(isTorch) C.push(1.5, 1.3, 1.0); else C.push(f.ao, f.ao, f.ao);
                             }
-                            const tIdx = BLOCKS[type].tiles[fi];
-                            const u = (tIdx % ATLAS_COLS) / ATLAS_COLS;
-                            const v = 1 - (Math.floor(tIdx / ATLAS_COLS) + 1) / ATLAS_ROWS;
-                            const uStep = 1 / ATLAS_COLS;
-                            const vStep = 1 / ATLAS_ROWS;
-                            
-                            uv.push(u, v, u, v + vStep, u + uStep, v + vStep, u + uStep, v);
-                            idx.push(count, count+1, count+2, count, count+2, count+3);
-                            count += 4;
+                            const tIdx2 = BLOCKS[type].tiles[fi];
+                            const u = (tIdx2 % ATLAS_COLS) / ATLAS_COLS;
+                            const v = 1 - (Math.floor(tIdx2 / ATLAS_COLS) + 1) / ATLAS_ROWS;
+                            const uStep = 1 / ATLAS_COLS, vStep = 1 / ATLAS_ROWS;
+                            UV.push(u, v, u, v+vStep, u+uStep, v+vStep, u+uStep, v);
+                            I.push(base, base+1, base+2, base, base+2, base+3);
+                            if(isTransp) tCount += 4; else sCount += 4;
                         });
                     }
                 }
             }
-            if(count === 0) return null;
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-            geo.setAttribute('color', new THREE.Float32BufferAttribute(color, 3));
-            geo.setIndex(idx);
-            if (!sharedChunkMaterial) sharedChunkMaterial = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, transparent: true, alphaTest: 0.1 });
-            const mesh = new THREE.Mesh(geo, sharedChunkMaterial);
-            mesh.castShadow = false; 
-            mesh.receiveShadow = false;
-            return mesh;
+
+            const makeMesh = (pos, norm, uv, color, idx, transp) => {
+                if(!idx.length) return null;
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                geo.setAttribute('normal',   new THREE.Float32BufferAttribute(norm, 3));
+                geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uv, 2));
+                geo.setAttribute('color',    new THREE.Float32BufferAttribute(color, 3));
+                geo.setIndex(idx);
+                let mat;
+                if (transp) {
+                    // Transparent blocks: alphaTest cutout + depthWrite:true so blocks
+                    // behind glass are never invisible. Water/ice opacity still works.
+                    mat = new THREE.MeshLambertMaterial({
+                        map: atlas, vertexColors: true,
+                        transparent: true, alphaTest: 0.1,
+                        depthWrite: true, side: THREE.DoubleSide
+                    });
+                } else {
+                    if (!sharedChunkMaterial) sharedChunkMaterial = new THREE.MeshLambertMaterial({
+                        map: atlas, vertexColors: true,
+                        transparent: false, alphaTest: 0.5
+                    });
+                    mat = sharedChunkMaterial;
+                }
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.castShadow = false; mesh.receiveShadow = false;
+                return mesh;
+            };
+
+            const meshes = [makeMesh(sPos,sNorm,sUV,sColor,sIdx,false), makeMesh(tPos,tNorm,tUV,tColor,tIdx,true)].filter(Boolean);
+            return meshes.length ? meshes : null;
+        }
+
+        function addTorchLight(x, y, z, key) {
+            if (torchLights[key] || !scene) return;
+            const light = new THREE.PointLight(0xFFA040, 1.4, 12, 2); // warm orange, falloff
+            light.position.set(Math.floor(x) + 0.5, Math.floor(y) + 0.9, Math.floor(z) + 0.5);
+            scene.add(light);
+            torchLights[key] = light;
+        }
+        function removeTorchLight(key) {
+            if (torchLights[key]) { scene.remove(torchLights[key]); delete torchLights[key]; }
         }
 
         function buildGrassPlantMesh(cx, cz) {
@@ -2230,14 +2344,17 @@
             const cx = Math.floor(wx/CHUNK_SIZE), cz = Math.floor(wz/CHUNK_SIZE);
             const k = `${cx},${cz}`;
             if(chunkMeshes[k]) {
-                scene.remove(chunkMeshes[k]);
-                clickables = clickables.filter(c => c !== chunkMeshes[k]);
-                if (chunkMeshes[k].geometry) chunkMeshes[k].geometry.dispose();
+                for(const m of chunkMeshes[k]) {
+                    scene.remove(m);
+                    clickables = clickables.filter(c => c !== m);
+                    if(m.geometry) m.geometry.dispose();
+                    // Don't dispose sharedChunkMaterial — it's reused
+                }
                 delete chunkMeshes[k];
             }
-            const m = buildChunk(cx, cz);
-            if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }
-            // Rebuild grass plant mesh for this chunk
+            const ms = buildChunk(cx, cz);
+            if(ms) { for(const m of ms) { scene.add(m); clickables.push(m); } chunkMeshes[k] = ms; }
+            // Rebuild grass plant mesh
             if (grassPlantMeshes[k]) {
                 scene.remove(grassPlantMeshes[k]);
                 clickables = clickables.filter(c => c !== grassPlantMeshes[k]);
@@ -2307,8 +2424,8 @@
                     return false; // right-click on grass plant does nothing
                 }
 
-                const bx = Math.floor(h.point.x - n.x*0.05), by = Math.floor(h.point.y - n.y*0.05), bz = Math.floor(h.point.z - n.z*0.05);
-                const pbx = Math.floor(h.point.x + n.x*0.05), pby = Math.floor(h.point.y + n.y*0.05), pbz = Math.floor(h.point.z + n.z*0.05);
+                const bx = Math.floor(h.point.x - n.x*0.5), by = Math.floor(h.point.y - n.y*0.5), bz = Math.floor(h.point.z - n.z*0.5);
+                const pbx = Math.floor(h.point.x + n.x*0.5), pby = Math.floor(h.point.y + n.y*0.5), pbz = Math.floor(h.point.z + n.z*0.5);
                 
                 const chunkKey = `${Math.floor(place ? pbx : bx) >> 4},${Math.floor(place ? pbz : bz) >> 4}`;
                 if (landClaims[chunkKey] && landClaims[chunkKey] !== userId) {
@@ -2346,7 +2463,8 @@
                     updateUI();
 
                     const k = `${pbx},${pby},${pbz}`;
-                    world[k] = id; if(id === 10) activeTorches.push({x:pbx, y:pby, z:pbz, k});
+                    world[k] = id;
+                    if(id === 10) { activeTorches.push({x:pbx, y:pby, z:pbz, k}); addTorchLight(pbx, pby, pbz, k); }
 
                     // ── Door: auto-place top half + store facing ──
                     if (BLOCKS[id] && BLOCKS[id].isDoorBottom) {
@@ -2358,6 +2476,15 @@
                         blockStates[k]  = { open: false, facing };
                         blockStates[kt] = { open: false, facing };
                         broadcastAction('PLACE', { x: pbx, y: pby+1, z: pbz, id: 102, facing });
+                        refreshChunk(pbx, pbz);
+                    }
+
+                    // ── Stair: store facing so buildChunk orients it correctly ──
+                    if (BLOCKS[id] && BLOCKS[id].isStair) {
+                        const ry = ((playerGroup.rotation.y % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+                        const facing = Math.round(ry / (Math.PI/2)) % 4;
+                        blockStates[k] = { facing };
+                        broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id, facing });
                         refreshChunk(pbx, pbz);
                     }
                     
@@ -2402,6 +2529,15 @@
                     }
 
                     if(type === 0 || BLOCKS[type]?.indestructible) return false;
+
+                    // ── Hardness-based progressive breaking ──
+                    const thisKey = `${bx},${by},${bz}`;
+                    if (mineTargetKey !== thisKey) { mineTargetKey = thisKey; mineHits = 0; }
+                    mineHits++;
+                    const speedMult = activeTool ? activeTool.speedMod : 1.0;
+                    const hitsNeeded = Math.max(1, Math.ceil((BLOCKS[type].hardness || 1) * 4 * speedMult));
+                    if (mineHits < hitsNeeded) return false; // not broken yet
+                    mineTargetKey = null; mineHits = 0;
                     
                     let added = false;
                     // Only give the door item when breaking the bottom half
@@ -2416,7 +2552,7 @@
 
                     const k = `${bx},${by},${bz}`;
                     world[k] = 0; 
-                    if(type === 10) activeTorches = activeTorches.filter(t => t.k !== k);
+                    if(type === 10) { activeTorches = activeTorches.filter(t => t.k !== k); removeTorchLight(k); }
 
                     // ── Door: also break the other half ──
                     if (BLOCKS[type] && BLOCKS[type].isDoor) {
@@ -2476,7 +2612,7 @@
                 const dk = `${bx},${by},${bz}`;
                 if (blockStates[dk] && blockStates[dk].open) return false; // open door passable
             }
-            return true;
+            return true; // slabs, stairs, and all other blocks treated as full-height solid
         }
 
         function checkCol(p) {
@@ -2654,7 +2790,8 @@
                             if(!touchState.moved && (Date.now() - touchState.startTime) < 300) interact(true); 
                             if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
                             document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)';
-                            touchState.id = null; 
+                            touchState.id = null;
+                            mineTargetKey = null; mineHits = 0;
                         }
                     }
                 });
@@ -2677,7 +2814,8 @@
                     }
                 };
                 window.onmouseup = e => { 
-                    if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; } 
+                    if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; }
+                    mineTargetKey = null; mineHits = 0;
                     document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; 
                 };
                 window.oncontextmenu = e => e.preventDefault();
@@ -2815,7 +2953,7 @@
             if(coins >= t.price) {
                 coins -= t.price;
                 activeTool = t;
-                currentMineDelay = 400 * t.speedMod;
+                currentMineDelay = 800 * t.speedMod;
                 updateCoinDisplay(); saveGame();
                 alert("Equipped " + t.name);
             }
@@ -2931,7 +3069,7 @@
             for(let x=px-RENDER_DIST; x<=px+RENDER_DIST; x++) {
                 for(let z=pz-RENDER_DIST; z<=pz+RENDER_DIST; z++) {
                     const k = `${x},${z}`;
-                    if(!chunkMeshes[k]) { const m = buildChunk(x, z); if(m) { scene.add(m); clickables.push(m); chunkMeshes[k] = m; }}
+                    if(!chunkMeshes[k]) { const ms=buildChunk(x,z); if(ms){ for(const m of ms){scene.add(m);clickables.push(m);} chunkMeshes[k]=ms; }}
                     if(!grassPlantMeshes[k]) { const gm = buildGrassPlantMesh(x, z); if(gm) { scene.add(gm); clickables.push(gm); grassPlantMeshes[k] = gm; }}
                 }
             }
@@ -2940,10 +3078,11 @@
             for (const k in chunkMeshes) {
                 const [cx, cz] = k.split(',').map(Number);
                 if (Math.abs(cx - px) > UNLOAD_DIST || Math.abs(cz - pz) > UNLOAD_DIST) {
-                    const mesh = chunkMeshes[k];
-                    scene.remove(mesh);
-                    clickables = clickables.filter(c => c !== mesh);
-                    if (mesh.geometry) mesh.geometry.dispose();
+                    for(const m of chunkMeshes[k]) {
+                        scene.remove(m);
+                        clickables = clickables.filter(c => c !== m);
+                        if (m.geometry) m.geometry.dispose();
+                    }
                     delete chunkMeshes[k];
                 }
             }
@@ -3142,8 +3281,18 @@
             // ── Performance: only run selection raycaster every 2 frames ──
             _selectionFrame++;
             if (_selectionFrame % 2 === 0) {
-                raycaster.setFromCamera({x:0, y:0}, camera); const hit = raycaster.intersectObjects(clickables)[0];
-                if(hit) { const n = hit.face.normal; selectionBox.position.set(Math.floor(hit.point.x-n.x*0.1)+0.5, Math.floor(hit.point.y-n.y*0.1)+0.5, Math.floor(hit.point.z-n.z*0.1)+0.5); selectionBox.visible = true; } else selectionBox.visible = false;
+                raycaster.setFromCamera({x:0, y:0}, camera);
+                const hit = raycaster.intersectObjects(clickables)[0];
+                if(hit && !hit.object.userData.isGrassPlant) {
+                    const n = hit.face.normal;
+                    // Use 0.5 offset (half-block) so we always land well inside the hit block
+                    selectionBox.position.set(
+                        Math.floor(hit.point.x - n.x*0.5) + 0.5,
+                        Math.floor(hit.point.y - n.y*0.5) + 0.5,
+                        Math.floor(hit.point.z - n.z*0.5) + 0.5
+                    );
+                    selectionBox.visible = true;
+                } else { selectionBox.visible = false; }
             }
             updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld();
             // ── Footstep sound ──
@@ -3214,7 +3363,7 @@
                  });
             }
 
-            if(activeTool) currentMineDelay = 400 * activeTool.speedMod;
+            if(activeTool) currentMineDelay = 800 * activeTool.speedMod;
 
             setJoinStep(3, 'CONNECTING TO SERVER...');
             try { initNetwork(); } catch(e) { console.warn('Network init error (game will still run):', e); }
@@ -3225,6 +3374,8 @@
             playerGroup.position.set(0.5, 32, 0.5);
             for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
             running = true;
+            // ── Activate lights for all torches loaded from the server ──
+            activeTorches.forEach(t => addTorchLight(t.x, t.y, t.z, t.k));
             updatePOV();
             if(!isTouch) {
                 try { document.body.requestPointerLock(); } catch(e) {}
