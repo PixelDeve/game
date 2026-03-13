@@ -647,7 +647,7 @@
         //  ASSET CACHE  (Cache API + IndexedDB)
         // ══════════════════════════════════════
         const ASSET_CACHE   = 'voxelpocket-assets-v1';
-        const ATLAS_IDB_KEY = 'atlas-v6';   // bump this whenever block textures change
+        const ATLAS_IDB_KEY = 'atlas-v5';   // bump this whenever block textures change
 
         // Generic fetch-with-cache — stores Response in Cache API
         async function cachedFetch(url) {
@@ -755,7 +755,6 @@
         let otherPlayers = {}; 
         let ATLAS_COLS = 8;
         let ATLAS_ROWS = 8;
-        const ATLAS_TILE_SIZE = 32; // px per tile in the atlas
         
         let coins = 0;
         let inventory = new Array(30).fill(null); 
@@ -1203,50 +1202,35 @@
             return geo;
         }
 
-        function buildOpenDoorGeo() {
-            // Closed door is thin in X (x: 0→T), full Z (z: 0→1).
-            // Open door is rotated 90°: thin in Z (z: 0→T), full X (x: 0→1).
-            // Build geometry directly — no Three.js rotation needed.
-            const T = 0.1875; // 3/16
-            const bBot = BLOCKS[101];
-            const bTop = BLOCKS[102];
-            const P=[], Nm=[], UV=[], C=[], I=[];
-            const cnt = { v: 0 };
-            emitBox(P, Nm, UV, C, I, cnt, 0, 0, 0,  0, 1, 0, 1, 0, T, bBot.tiles); // bottom half
-            emitBox(P, Nm, UV, C, I, cnt, 0, 1, 0,  0, 1, 0, 1, 0, T, bTop.tiles); // top half
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
-            geo.setAttribute('normal',   new THREE.Float32BufferAttribute(Nm, 3));
-            geo.setAttribute('uv',       new THREE.Float32BufferAttribute(UV, 2));
-            geo.setAttribute('color',    new THREE.Float32BufferAttribute(C, 3));
-            geo.setIndex(I);
-            return geo;
-        }
-
         function updateDoorMesh(x, y, z) {
             const k = `${x},${y},${z}`;
-            // Only handle door bottom — the mesh covers both halves
-            if (BLOCKS[getBlock(x, y, z)]?.isDoorTop) return;
-
-            // Remove any existing mesh
+            const state = blockStates[k];
             if (doorMeshes[k]) {
                 scene.remove(doorMeshes[k]);
                 clickables = clickables.filter(c => c !== doorMeshes[k]);
                 if (doorMeshes[k].geometry) doorMeshes[k].geometry.dispose();
                 delete doorMeshes[k];
             }
-
-            const state = blockStates[k];
             if (!state || !state.open) return;
 
             const geo = buildOpenDoorGeo();
             const mesh = new THREE.Mesh(geo, sharedChunkMaterial);
+            mesh.castShadow = true;
             mesh.userData.doorKey = k;
 
-            // Open door sits at the block origin — thin in Z, spanning full X
-            // Place it flush with the front face (z + 0 offset) so it hugs the wall
-            mesh.position.set(x, y, z);
-            mesh.rotation.y = 0;
+            // Hinge is at the front-left corner of the block.
+            // rotation.y = +PI/2  → panel swings from lying along X to lying along +Z (inside block).
+            // Vary hinge side by facing so the door always swings inward.
+            const f = state.facing || 0;
+            if (f === 0 || f === 2) {
+                // Closed door runs along X → open along Z
+                mesh.position.set(x + 0.04, y, z);
+                mesh.rotation.y = Math.PI / 2;
+            } else {
+                // Closed door runs along Z → open along X
+                mesh.position.set(x, y, z + 0.04);
+                mesh.rotation.y = 0;   // geo already runs along X from 0→0.95
+            }
 
             scene.add(mesh);
             doorMeshes[k] = mesh;
@@ -1265,8 +1249,8 @@
             blockStates[k].open = !blockStates[k].open;
             blockStates[kt] = { ...blockStates[k] };
 
-            // Only update the bottom-half mesh — it covers both halves
             updateDoorMesh(bx, by, bz);
+            updateDoorMesh(bx, by+1, bz);
             refreshChunk(bx, bz);
             broadcastAction('TOGGLE', { x: bx, y: by, z: bz, open: blockStates[k].open });
         }
@@ -1520,6 +1504,7 @@
                                 blockStates[key] = state;
                                 blockStates[kt]  = { ...state };
                                 updateDoorMesh(Math.floor(d.x), Math.floor(d.y), Math.floor(d.z));
+                                updateDoorMesh(Math.floor(d.x), Math.floor(d.y)+1, Math.floor(d.z));
                                 if (running) { refreshChunk(d.x, d.z); }
                             }
                         }
@@ -1776,7 +1761,7 @@
             const now = Date.now();
             const TIMEOUT_THRESHOLD = 10000; // 10 seconds of no data = offline
 
-            for (let pid in otherPlayers) {
+            for (const pid of Object.keys(otherPlayers)) {
                 const p = otherPlayers[pid];
                 
                 // If player hasn't updated in 10s, remove them
@@ -2156,14 +2141,7 @@
                 const u = (ti % ATLAS_COLS) / ATLAS_COLS;
                 const v = 1 - (Math.floor(ti / ATLAS_COLS) + 1) / ATLAS_ROWS;
                 const uS = 1/ATLAS_COLS, vS = 1/ATLAS_ROWS;
-                const pu = 0.5 / (ATLAS_TILE_SIZE * ATLAS_COLS), pv = 0.5 / (ATLAS_TILE_SIZE * ATLAS_ROWS);
-                const uf = f.uFrac, vf = f.vFrac;
-                UV.push(
-                    u+pu,           v+pv,
-                    u+pu,           v+vS*vf-pv,
-                    u+uS*uf-pu,     v+vS*vf-pv,
-                    u+uS*uf-pu,     v+pv
-                );
+                UV.push(u, v,  u, v+vS*f.vFrac,  u+uS*f.uFrac, v+vS*f.vFrac,  u+uS*f.uFrac, v);
                 I.push(base, base+1, base+2, base, base+2, base+3);
                 cnt.v += 4;
             }
@@ -2243,14 +2221,7 @@
                             const u = (tIdx2 % ATLAS_COLS) / ATLAS_COLS;
                             const v = 1 - (Math.floor(tIdx2 / ATLAS_COLS) + 1) / ATLAS_ROWS;
                             const uStep = 1 / ATLAS_COLS, vStep = 1 / ATLAS_ROWS;
-                            // Half-texel inset prevents UV bleeding into neighbouring atlas tiles
-                            const pu = 0.5 / (ATLAS_TILE_SIZE * ATLAS_COLS), pv = 0.5 / (ATLAS_TILE_SIZE * ATLAS_ROWS);
-                            UV.push(
-                                u+pu,        v+pv,
-                                u+pu,        v+vStep-pv,
-                                u+uStep-pu,  v+vStep-pv,
-                                u+uStep-pu,  v+pv
-                            );
+                            UV.push(u, v, u, v+vStep, u+uStep, v+vStep, u+uStep, v);
                             I.push(base, base+1, base+2, base, base+2, base+3);
                             if(isTransp) tCount += 4; else sCount += 4;
                         });
@@ -2833,7 +2804,16 @@
                     if (!running || document.activeElement.tagName === 'INPUT') return; 
                     keys[e.key.toLowerCase()] = 1; 
                     if(e.key===' ') handleJumpTap(); 
-                    if(e.key==='Escape') { paused = !paused; pMenu.style.display = paused ? 'flex' : 'none'; } 
+                    if(e.key==='Escape') { paused = !paused; pMenu.style.display = paused ? 'flex' : 'none'; }
+                    const num = parseInt(e.key);
+                    if (num >= 1 && num <= 8) { activeHotbarIndex = num - 1; updateUI(); }
+                };
+                window.onwheel = e => {
+                    if (!running || paused) return;
+                    e.preventDefault();
+                    if (e.deltaY > 0) activeHotbarIndex = (activeHotbarIndex + 1) % 8;
+                    else activeHotbarIndex = (activeHotbarIndex + 7) % 8;
+                    updateUI();
                 };
                 window.onkeyup = e => { if(!running) return; keys[e.key.toLowerCase()] = 0; };
                 window.onmousedown = e => { 
@@ -3244,11 +3224,10 @@
                 ambientLight.intensity = 0.28 + dawnFactor * 0.25 + sunT * 0.35;
                 // No shadows — using baked vertex AO (Minecraft style)
 
-                // ── Fog distance: slightly shorter at night (like Minecraft) ──
-                const baseFar  = RENDER_DIST * CHUNK_SIZE * 1.1;
-                const nightFar = baseFar * 0.75;
-                scene.fog.far  = nightFar + (baseFar - nightFar) * sunT;
-                scene.fog.near = scene.fog.far * 0.55;
+                // ── Fog density: thicker at night (like Minecraft void blindness) ──
+                const nightFog = _isLowEnd ? 0.045 : 0.027;
+                const dayFog   = _isLowEnd ? 0.038 : 0.022;
+                scene.fog.density = nightFog + (dayFog - nightFog) * sunT;
 
                 // Cloud tint: orange at dawn/dusk, white at day, dark at night
                 if (clouds) {
@@ -3331,7 +3310,7 @@
             updateNetworkLoop(); updateRemotePlayersVisuals(dt); updateWorld();
             // ── Footstep sound ──
             const _nowMs = performance.now();
-            const _moving = Math.hypot(vel.x || 0, vel.z || 0) > 0.5;
+            const _moving = Math.hypot(dx, dz) > 0.5;
             if (_moving && onGround && _nowMs - _lastWalkSound > 420) {
                 _lastWalkSound = _nowMs;
                 playSound('walk', 0.55, 0.12);
@@ -3497,15 +3476,11 @@
             scene = new THREE.Scene();
             // ── Minecraft-style exponential fog ──
             const fogDensity = _isLowEnd ? 0.045 : 0.027;
-            // Linear fog: starts well into view, ends at chunk border — matches Minecraft
-            const CHUNK_BLOCKS = CHUNK_SIZE; // 16
-            const fogNear = RENDER_DIST * CHUNK_BLOCKS * 0.6;
-            const fogFar  = RENDER_DIST * CHUNK_BLOCKS * 1.1;
-            scene.fog = new THREE.Fog(0x78A7FF, fogNear, fogFar);
+            scene.fog = new THREE.FogExp2(0x78A7FF, fogDensity);
             scene.background = new THREE.Color(0x78A7FF);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
             cameraPivot = new THREE.Group(); playerGroup.add(cameraPivot);
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 400); cameraPivot.add(camera);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100); cameraPivot.add(camera);
 
             // ── Performance: limit pixel ratio, enable optimisations ──
             renderer = new THREE.WebGLRenderer({ antialias: !isTouch && !_isLowEnd, powerPreference: 'high-performance' });
@@ -3599,10 +3574,13 @@
                 document.getElementById('start-btn').style.display = 'block';
             }, 5000);
             setPersistence(auth, browserLocalPersistence).then(() => {
+                let _gameStarted = false;
                 onAuthStateChanged(auth, (user) => {
                     clearTimeout(authTimeout);
                     setMenuProgress(100, 'READY!');
                     if (user) {
+                        if (_gameStarted) return; // prevent re-entry on token refresh
+                        _gameStarted = true;
                         startGame(user).catch(e => {
                             console.error('startGame unhandled:', e);
                             const lt = document.getElementById('loading-text');
