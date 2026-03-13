@@ -647,7 +647,7 @@
         //  ASSET CACHE  (Cache API + IndexedDB)
         // ══════════════════════════════════════
         const ASSET_CACHE   = 'voxelpocket-assets-v1';
-        const ATLAS_IDB_KEY = 'atlas-v4';   // bump this whenever block textures change
+        const ATLAS_IDB_KEY = 'atlas-v5';   // bump this whenever block textures change
 
         // Generic fetch-with-cache — stores Response in Cache API
         async function cachedFetch(url) {
@@ -884,6 +884,7 @@
         let mixer, actions = {}, activeAction;
         let mineTargetKey = null, mineHits = 0; // hardness-based progressive breaking
         let savedSpawnPos = null; // restored from Firestore on login
+        let _bobPhase = 0, _bobBobY = 0, _bobBobX = 0; // view bobbing state
         let sharedChunkMaterial = null;
         let grassPlantTexture = null;
         let grassPlantMeshes = {};
@@ -1181,13 +1182,17 @@
         // ════════════════════════════════════
 
         function buildOpenDoorGeo() {
-            // Thick door panel: 0.95 wide, 2 blocks tall, 3/16 deep
-            // Hinge at x=0 corner; rotation applied by updateDoorMesh
-            const T = 0.1875; // 3/16 thickness (matches closed door)
-            const b = BLOCKS[101];
+            // Two stacked 1-unit panels: bottom uses door-bottom tiles, top uses door-top tiles.
+            // Splitting avoids UV overflow that caused the purple top face.
+            const T = 0.1875; // 3/16 thickness
+            const bBot = BLOCKS[101]; // door bottom
+            const bTop = BLOCKS[102]; // door top
             const P=[], Nm=[], UV=[], C=[], I=[];
             const cnt = { v: 0 };
-            emitBox(P, Nm, UV, C, I, cnt, 0, 0, 0, 0, 0.95, 0, 2.0, 0, T, b.tiles);
+            // Bottom half: y 0→1
+            emitBox(P, Nm, UV, C, I, cnt, 0, 0, 0,  0, 0.95, 0, 1, 0, T, bBot.tiles);
+            // Top half: y 1→2
+            emitBox(P, Nm, UV, C, I, cnt, 0, 1, 0,  0, 0.95, 0, 1, 0, T, bTop.tiles);
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
             geo.setAttribute('normal',   new THREE.Float32BufferAttribute(Nm, 3));
@@ -1921,7 +1926,9 @@
                         img.onload = () => {
                             const canvas = document.createElement('canvas');
                             canvas.width = img.width; canvas.height = img.height;
-                            canvas.getContext('2d').drawImage(img, 0, 0);
+                            const c2d = canvas.getContext('2d');
+                            c2d.imageSmoothingEnabled = false;
+                            c2d.drawImage(img, 0, 0);
                             const S = 32;
                             ATLAS_COLS = Math.round(img.width / S);
                             ATLAS_ROWS = Math.round(img.height / S);
@@ -1931,6 +1938,7 @@
                             Object.values(BLOCKS).forEach(b => { if(b.files) b.tiles = b.files.map(f => fileToId[f]); });
                             const tex = new THREE.CanvasTexture(canvas);
                             tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+                            tex.generateMipmaps = false;
                             tex.image = canvas;
                             resolve(tex);
                         };
@@ -1946,6 +1954,7 @@
             const S = 32; 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
             
             const uniqueFiles = [...new Set(Object.values(BLOCKS).flatMap(b => b.files || []))];
             const count = uniqueFiles.length;
@@ -2069,6 +2078,7 @@
             const tex = new THREE.CanvasTexture(canvas);
             tex.magFilter = THREE.NearestFilter;
             tex.minFilter = THREE.NearestFilter;
+            tex.generateMipmaps = false;
             tex.image = canvas;
             // ── Save built atlas to IndexedDB for next session ──
             try { saveAtlasToIDB(canvas.toDataURL('image/png')); } catch(e) {}
@@ -2114,14 +2124,13 @@
         // Handles UV scaling for partial heights/widths so textures aren't stretched.
         function emitBox(P, Nm, UV, C, I, cnt, wx, wy, wz, x0,x1,y0,y1,z0,z1, tiles) {
             const h=y1-y0, w=x1-x0, d=z1-z0;
-            // [normal, 4 verts, tile index, ao, vFrac, uFrac]
             const boxFaces = [
-                { n:[1,0,0],  vts:[[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]], ti:tiles[0], ao:0.8, vFrac:h, uFrac:d },
-                { n:[-1,0,0], vts:[[x0,y0,z1],[x0,y1,z1],[x0,y1,z0],[x0,y0,z0]], ti:tiles[1], ao:0.8, vFrac:h, uFrac:d },
-                { n:[0,1,0],  vts:[[x0,y1,z1],[x1,y1,z1],[x1,y1,z0],[x0,y1,z0]], ti:tiles[2], ao:1.0, vFrac:d, uFrac:w },
-                { n:[0,-1,0], vts:[[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]], ti:tiles[3], ao:0.5, vFrac:d, uFrac:w },
-                { n:[0,0,1],  vts:[[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],[x0,y0,z1]], ti:tiles[4], ao:0.9, vFrac:h, uFrac:w },
-                { n:[0,0,-1], vts:[[x0,y0,z0],[x0,y1,z0],[x1,y1,z0],[x1,y0,z0]], ti:tiles[5], ao:0.9, vFrac:h, uFrac:w },
+                { n:[1,0,0],  vts:[[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]], ti:tiles[0], ao:0.8, vFrac:Math.min(h,1), uFrac:Math.min(d,1) },
+                { n:[-1,0,0], vts:[[x0,y0,z1],[x0,y1,z1],[x0,y1,z0],[x0,y0,z0]], ti:tiles[1], ao:0.8, vFrac:Math.min(h,1), uFrac:Math.min(d,1) },
+                { n:[0,1,0],  vts:[[x0,y1,z1],[x1,y1,z1],[x1,y1,z0],[x0,y1,z0]], ti:tiles[2], ao:1.0, vFrac:Math.min(d,1), uFrac:Math.min(w,1) },
+                { n:[0,-1,0], vts:[[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]], ti:tiles[3], ao:0.5, vFrac:Math.min(d,1), uFrac:Math.min(w,1) },
+                { n:[0,0,1],  vts:[[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],[x0,y0,z1]], ti:tiles[4], ao:0.9, vFrac:Math.min(h,1), uFrac:Math.min(w,1) },
+                { n:[0,0,-1], vts:[[x0,y0,z0],[x0,y1,z0],[x1,y1,z0],[x1,y0,z0]], ti:tiles[5], ao:0.9, vFrac:Math.min(h,1), uFrac:Math.min(w,1) },
             ];
             for (const f of boxFaces) {
                 const base = cnt.v;
@@ -2638,7 +2647,8 @@
         function updatePOV() {
             raycaster.far = (povMode === 0) ? 5 : 12;
             if (povMode === 0) {
-                camera.position.set(0, 0, 0); camera.rotation.y = 0;
+                // First-person: bob controls camera.position each frame; just clear rotation
+                camera.rotation.y = 0;
                 if(externalModel) externalModel.visible = false;
             } else if (povMode === 1) {
                 camera.position.set(0.8, 0.5, povDist); camera.rotation.y = 0;
@@ -3296,6 +3306,31 @@
                 _lastWalkSound = _nowMs;
                 playSound('walk', 0.55, 0.12);
             }
+
+            // ── Minecraft-style view bob (first-person only) ──
+            if (povMode === 0) {
+                const hSpeed = Math.hypot(dx, dz);
+                const isMovingOnGround = hSpeed > 0.1 && onGround;
+                if (isMovingOnGround) {
+                    // Advance phase based on distance walked — matches Minecraft's 1 bob per 2 steps
+                    _bobPhase += dt * hSpeed * 1.8;
+                }
+                // Target bob amounts — zero when not moving or in air
+                const bobAmt = isMovingOnGround ? 1.0 : 0.0;
+                const targetY = Math.abs(Math.sin(_bobPhase)) * 0.048 * bobAmt; // up-down: two peaks per cycle
+                const targetX = Math.sin(_bobPhase * 0.5) * 0.024 * bobAmt;     // side sway: one peak per cycle
+                // Smooth damp toward target so it eases in and out
+                const smooth = 1 - Math.exp(-12 * dt);
+                _bobBobY += (targetY - _bobBobY) * smooth;
+                _bobBobX += (targetX - _bobBobX) * smooth;
+                camera.position.set(_bobBobX, _bobBobY, 0);
+                cameraPivot.rotation.z = _bobBobX * -0.8; // slight roll — Minecraft does this too
+            } else {
+                // 3rd person: reset bob so switching POV is clean
+                _bobBobY = 0; _bobBobX = 0;
+                cameraPivot.rotation.z = 0;
+            }
+
             renderer.render(scene, camera);
         }
 
