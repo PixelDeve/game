@@ -883,6 +883,7 @@
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
         let mineTargetKey = null, mineHits = 0; // hardness-based progressive breaking
+        let savedSpawnPos = null; // restored from Firestore on login
         let sharedChunkMaterial = null;
         let grassPlantTexture = null;
         let grassPlantMeshes = {};
@@ -890,45 +891,39 @@
         const torchLights = {}; // "x,y,z" → THREE.PointLight // "wx,wy,wz" keys of manually broken plants
 
         // ── SOUND SYSTEM ──
-        const soundBuffers = {}; // name → ArrayBuffer (raw, not yet decoded)
-        const soundDecoded = {}; // name → AudioBuffer (decoded, ready to play)
-        const SOUND_FILES = { click: 'click.mp3', break: 'break.mp3', walk: 'walk.mp3', place: 'place.mp3' };
         let audioCtx = null;
+        const _soundBuffers = {};  // name → ArrayBuffer (raw bytes, fetched once)
+        const _soundDecoded = {};  // name → AudioBuffer (decoded, cached after first play)
 
         function getAudioCtx() {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             return audioCtx;
         }
 
-        // Just fetch and store raw bytes — no AudioContext needed yet
+        // Fetch raw bytes at startup — no AudioContext needed yet so no browser policy hit
         async function loadSounds() {
-            for (const [name, file] of Object.entries(SOUND_FILES)) {
-                for (const base of [`./assets/${file}`, `./${file}`]) {
-                    try {
-                        const res = await fetch(base);
-                        if (!res.ok) continue;
-                        soundBuffers[name] = await res.arrayBuffer();
-                        break;
-                    } catch(e) { /* try next path */ }
-                }
+            const files = { place: 'place.mp3', break: 'break.mp3', click: 'click.mp3', walk: 'walk.mp3' };
+            for (const [name, file] of Object.entries(files)) {
+                try {
+                    const res = await fetch(`./assets/sounds/${file}`);
+                    if (res.ok) { _soundBuffers[name] = await res.arrayBuffer(); }
+                    else console.warn(`Sound not found: assets/sounds/${file}`);
+                } catch(e) { console.warn(`Sound load error (${file}):`, e); }
             }
         }
 
         async function playSound(name, volume = 1.0, pitchVariance = 0.08) {
             try {
-                // Decode lazily on first play (requires user gesture to have happened)
-                if (!soundDecoded[name]) {
-                    if (!soundBuffers[name]) return;
+                if (!_soundDecoded[name]) {
+                    if (!_soundBuffers[name]) return;
                     const ctx = getAudioCtx();
-                    // decodeAudioData consumes the buffer, so slice a copy
-                    soundDecoded[name] = await ctx.decodeAudioData(soundBuffers[name].slice(0));
+                    _soundDecoded[name] = await ctx.decodeAudioData(_soundBuffers[name].slice(0));
                 }
                 const ctx = getAudioCtx();
-                // Resume if browser auto-suspended it
                 if (ctx.state === 'suspended') await ctx.resume();
-                const src = ctx.createBufferSource();
+                const src  = ctx.createBufferSource();
                 const gain = ctx.createGain();
-                src.buffer = soundDecoded[name];
+                src.buffer = _soundDecoded[name];
                 src.playbackRate.value = 1 + (Math.random() - 0.5) * pitchVariance;
                 gain.gain.value = volume;
                 src.connect(gain);
@@ -1186,30 +1181,19 @@
         // ════════════════════════════════════
 
         function buildOpenDoorGeo() {
-            // Panel: x from 0→0.95 (hinge at x=0), y from 0→1, z=0 (flat)
-            // When rotation.y = +PI/2, vertex (0.95,h,0) → (0,h,0.95): panel runs along +Z ✓
+            // Thick door panel: 0.95 wide, 2 blocks tall, 3/16 deep
+            // Hinge at x=0 corner; rotation applied by updateDoorMesh
+            const T = 0.1875; // 3/16 thickness (matches closed door)
             const b = BLOCKS[101];
-            const tFront = b.tiles[4];
-            const u0 = (tFront % ATLAS_COLS) / ATLAS_COLS;
-            const v0 = 1 - (Math.floor(tFront / ATLAS_COLS) + 1) / ATLAS_ROWS;
-            const us = 1 / ATLAS_COLS, vs = 1 / ATLAS_ROWS;
-            const W = 0.95, H = 1.0;
+            const P=[], Nm=[], UV=[], C=[], I=[];
+            const cnt = { v: 0 };
+            emitBox(P, Nm, UV, C, I, cnt, 0, 0, 0, 0, 0.95, 0, 2.0, 0, T, b.tiles);
             const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute([
-                0,0,0,  W,0,0,  W,H,0,  0,H,0,   // front face
-                W,0,0,  0,0,0,  0,H,0,  W,H,0    // back face
-            ], 3));
-            geo.setAttribute('uv', new THREE.Float32BufferAttribute([
-                u0,v0,  u0+us,v0,  u0+us,v0+vs,  u0,v0+vs,
-                u0,v0,  u0+us,v0,  u0+us,v0+vs,  u0,v0+vs
-            ], 2));
-            const ao = 0.9;
-            geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(24).fill(ao), 3));
-            geo.setAttribute('normal', new THREE.Float32BufferAttribute([
-                0,0,1, 0,0,1, 0,0,1, 0,0,1,
-                0,0,-1,0,0,-1,0,0,-1,0,0,-1
-            ], 3));
-            geo.setIndex([0,1,2, 0,2,3,  4,5,6, 4,6,7]);
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+            geo.setAttribute('normal',   new THREE.Float32BufferAttribute(Nm, 3));
+            geo.setAttribute('uv',       new THREE.Float32BufferAttribute(UV, 2));
+            geo.setAttribute('color',    new THREE.Float32BufferAttribute(C, 3));
+            geo.setIndex(I);
             return geo;
         }
 
@@ -1879,12 +1863,19 @@
             localStorage.setItem('voxel_prefs_client', JSON.stringify({ povMode }));
             if (currentUser && userId) {
                 const userRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'user_stats', userId);
+                const pos = playerGroup ? {
+                    px: playerGroup.position.x,
+                    py: playerGroup.position.y,
+                    pz: playerGroup.position.z,
+                    ry: playerGroup.rotation.y
+                } : {};
                 setDoc(userRef, {
                     inventory: inventory,
                     coins: coins,
                     currentSkin: currentSkin,
                     ownedSkins: ownedSkins,
-                    activeTool: activeTool
+                    activeTool: activeTool,
+                    ...pos
                 }, { merge: true });
             }
         }
@@ -1910,6 +1901,9 @@
                         currentSkin = saved.currentSkin || 'default';
                         ownedSkins = saved.ownedSkins || ['default'];
                         activeTool = saved.activeTool || null;
+                        if (saved.px !== undefined) {
+                            savedSpawnPos = { x: saved.px, y: saved.py, z: saved.pz, ry: saved.ry || 0 };
+                        }
                     }
                 } catch(e) { console.warn('loadGame skipped:', e.message); }
             }
@@ -2209,8 +2203,8 @@
                             for(let i=0; i<4; i++) {
                                 let vx = f.v[i*3], vy = f.v[i*3+1], vz = f.v[i*3+2];
                                 if(isTorch) { vx = 0.4375 + vx*0.125; vy = vy*0.625; vz = 0.4375 + vz*0.125; }
-                                // Door: 6/16 thick, centred — visibly solid, not a sliver
-                                else if(isDoor) { vx = 0.3125 + vx*0.375; }
+                                // Door: 3/16 thick, flush with front face of block
+                                else if(isDoor) { vx = 0.0 + vx*0.1875; }
                                 P.push(wx+vx, y+vy, wz+vz); Nm.push(...f.n);
                                 if(isTorch) C.push(1.5, 1.3, 1.0); else C.push(f.ao, f.ao, f.ao);
                             }
@@ -3371,8 +3365,13 @@
             await new Promise(r => setTimeout(r, 800));
 
             setJoinStep(4, 'GENERATING TERRAIN...');
-            playerGroup.position.set(0.5, 32, 0.5);
-            for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
+            if (savedSpawnPos) {
+                playerGroup.position.set(savedSpawnPos.x, savedSpawnPos.y, savedSpawnPos.z);
+                playerGroup.rotation.y = savedSpawnPos.ry;
+            } else {
+                playerGroup.position.set(0.5, 32, 0.5);
+                for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
+            }
             running = true;
             // ── Activate lights for all torches loaded from the server ──
             activeTorches.forEach(t => addTorchLight(t.x, t.y, t.z, t.k));
