@@ -256,6 +256,18 @@
         .menu-btn.danger:hover { background: rgba(231,76,60,0.2); border-color: #e74c3c; }
 
         /* ══════════════════════════════
+           SETTINGS OVERLAY
+        ══════════════════════════════ */
+        #settings-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.75); backdrop-filter: blur(10px);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 3100; pointer-events: auto;
+        }
+        #settings-overlay.open { display: flex; }
+        #settings-name-input:focus { border-color: rgba(74,170,255,0.7); background: rgba(255,255,255,0.12); }
+
+        /* ══════════════════════════════
            INVENTORY OVERLAY
         ══════════════════════════════ */
         #inventory-overlay {
@@ -578,7 +590,41 @@
         <div class="menu-card">
             <div class="menu-card-title">PAUSED</div>
             <div id="resume-btn" class="menu-btn">▶ RESUME</div>
+            <div id="settings-btn" class="menu-btn">⚙ SETTINGS</div>
             <div id="quit-btn" class="menu-btn danger">✕ QUIT</div>
+        </div>
+    </div>
+
+    <!-- SETTINGS OVERLAY -->
+    <div id="settings-overlay">
+        <div class="menu-card" style="width:280px;gap:14px;">
+            <div class="menu-card-title">⚙ SETTINGS</div>
+
+            <!-- Name Change -->
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <div style="color:#aaa;font-size:6px;letter-spacing:1px;">DISPLAY NAME</div>
+                <input id="settings-name-input" type="text" maxlength="20" placeholder="Enter name..."
+                    style="background:rgba(255,255,255,0.07);border:1.5px solid rgba(255,255,255,0.2);
+                           border-radius:6px;color:#fff;padding:9px 10px;font-family:'Press Start 2P';
+                           font-size:7px;outline:none;width:100%;box-sizing:border-box;">
+                <div id="settings-name-btn" class="menu-btn" style="font-size:7px;padding:9px;">✔ APPLY NAME</div>
+            </div>
+
+            <!-- Render Distance -->
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <div style="color:#aaa;font-size:6px;letter-spacing:1px;">RENDER DISTANCE</div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <input id="settings-rd-slider" type="range" min="1" max="6" step="1" value="3"
+                        style="flex:1;accent-color:#4af;cursor:pointer;height:4px;">
+                    <div id="settings-rd-val" style="color:#4af;font-size:9px;min-width:24px;text-align:center;">3</div>
+                </div>
+                <div style="display:flex;justify-content:space-between;color:#444;font-size:5px;letter-spacing:0.5px;padding:0 2px;">
+                    <span>POTATO</span><span>LOW</span><span>MED</span><span>HIGH</span><span>EPIC</span><span>ULTRA</span>
+                </div>
+                <div id="settings-rd-btn" class="menu-btn" style="font-size:7px;padding:9px;">✔ APPLY DISTANCE</div>
+            </div>
+
+            <div id="close-settings-btn" class="menu-btn" style="font-size:7px;padding:9px;margin-top:2px;">← BACK</div>
         </div>
     </div>
 
@@ -647,7 +693,7 @@
         //  ASSET CACHE  (Cache API + IndexedDB)
         // ══════════════════════════════════════
         const ASSET_CACHE   = 'voxelpocket-assets-v1';
-        const ATLAS_IDB_KEY = 'atlas-v5';   // bump this whenever block textures change
+        const ATLAS_IDB_KEY = 'atlas-v6';   // bump this whenever block textures change
 
         // Generic fetch-with-cache — stores Response in Cache API
         async function cachedFetch(url) {
@@ -960,7 +1006,7 @@
         // ── Low-end device detection ──
         const _isLowEnd = (navigator.hardwareConcurrency || 4) <= 2 || 
                           (isTouch && (navigator.hardwareConcurrency || 4) <= 4);
-        const RENDER_DIST  = _isLowEnd ? 2 : 3;
+        let RENDER_DIST  = _isLowEnd ? 2 : 3;
         const _TARGET_DT   = _isLowEnd ? 1/30 : 1/60;  // cap at 30fps on low-end
         let   _lastFrameTime = 0;
 
@@ -2144,10 +2190,16 @@
                     P.push(wx+vx, wy+vy, wz+vz); Nm.push(...f.n); C.push(f.ao, f.ao, f.ao);
                 }
                 const ti = f.ti;
-                const u = (ti % ATLAS_COLS) / ATLAS_COLS;
-                const v = 1 - (Math.floor(ti / ATLAS_COLS) + 1) / ATLAS_ROWS;
-                const uS = 1/ATLAS_COLS, vS = 1/ATLAS_ROWS;
-                UV.push(u, v,  u, v+vS*f.vFrac,  u+uS*f.uFrac, v+vS*f.vFrac,  u+uS*f.uFrac, v);
+                // Half-pixel UV inset: prevents adjacent atlas tiles bleeding into each other
+                // at texture seams (especially visible on glass, leaves, doors).
+                const _HP = 0.5; // half-pixel in texel space
+                const _invW = 1 / (ATLAS_COLS * 32); // 1 texel in U
+                const _invH = 1 / (ATLAS_ROWS * 32); // 1 texel in V
+                const u  = (ti % ATLAS_COLS) / ATLAS_COLS      + _HP * _invW;
+                const v  = 1 - (Math.floor(ti / ATLAS_COLS) + 1) / ATLAS_ROWS + _HP * _invH;
+                const uS = (1/ATLAS_COLS  - 2*_HP*_invW) * f.uFrac;
+                const vS = (1/ATLAS_ROWS  - 2*_HP*_invH) * f.vFrac;
+                UV.push(u, v,  u, v+vS,  u+uS, v+vS,  u+uS, v);
                 I.push(base, base+1, base+2, base, base+2, base+3);
                 cnt.v += 4;
             }
@@ -2747,6 +2799,51 @@
             pBtn.onclick = (e) => { e.stopPropagation(); paused = true; pMenu.style.display = 'flex'; if(document.pointerLockElement) document.exitPointerLock(); };
             document.getElementById('resume-btn').onclick = () => { paused = false; pMenu.style.display = 'none'; if(!isTouch) document.body.requestPointerLock(); };
             document.getElementById('quit-btn').onclick = () => { saveGame(); location.reload(); };
+
+            // ── Settings ──
+            const settingsOverlay = document.getElementById('settings-overlay');
+            const rdSlider = document.getElementById('settings-rd-slider');
+            const rdVal    = document.getElementById('settings-rd-val');
+
+            // Init slider to current value
+            rdSlider.value = RENDER_DIST;
+            rdVal.textContent = RENDER_DIST;
+            rdSlider.oninput = () => { rdVal.textContent = rdSlider.value; };
+
+            document.getElementById('settings-btn').onclick = () => {
+                pMenu.style.display = 'none';
+                // Pre-fill name input with current display name
+                document.getElementById('settings-name-input').value = userDisplayName;
+                rdSlider.value = RENDER_DIST;
+                rdVal.textContent = RENDER_DIST;
+                settingsOverlay.classList.add('open');
+            };
+            document.getElementById('close-settings-btn').onclick = () => {
+                settingsOverlay.classList.remove('open');
+                pMenu.style.display = 'flex';
+            };
+            document.getElementById('settings-name-btn').onclick = () => {
+                const newName = document.getElementById('settings-name-input').value.trim();
+                if (!newName) return;
+                userDisplayName = newName;
+                document.getElementById('user-display-id').innerText = newName;
+                saveGame();
+                // Broadcast updated name so other players see it
+                if (currentUser) {
+                    const playerRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'players', userId);
+                    setDoc(playerRef, { name: newName }, { merge: true });
+                }
+                showToast('✔ Name updated: ' + newName, '#2ecc71', '#2ecc71');
+            };
+            document.getElementById('settings-rd-btn').onclick = () => {
+                const newDist = parseInt(rdSlider.value);
+                RENDER_DIST = newDist;
+                // Force a full chunk reload by clearing the last player chunk cache
+                lastPlayerCX = null; lastPlayerCZ = null;
+                // Rebuild visible world with new distance
+                updateWorld();
+                showToast('✔ Render distance: ' + newDist, '#4af', '#4af');
+            };
 
             if(isTouch) {
                 const zone = document.getElementById('joy-zone'), nub = document.getElementById('joy-nub');
