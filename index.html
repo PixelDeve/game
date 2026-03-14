@@ -1212,6 +1212,12 @@
                 delete doorMeshes[k];
             }
             if (!state || !state.open) return;
+            // Only build the open-door mesh for the BOTTOM block.
+            // The geometry already covers both halves (y and y+1), so calling
+            // this for the top block would create a duplicate shifted up 1 unit,
+            // making the door appear 3 blocks tall.
+            const blockType = getBlock(x, y, z);
+            if (BLOCKS[blockType] && BLOCKS[blockType].isDoorTop) return;
 
             const geo = buildOpenDoorGeo();
             const mesh = new THREE.Mesh(geo, sharedChunkMaterial);
@@ -3225,8 +3231,8 @@
                 // No shadows — using baked vertex AO (Minecraft style)
 
                 // ── Fog density: thicker at night (like Minecraft void blindness) ──
-                const nightFog = _isLowEnd ? 0.045 : 0.027;
-                const dayFog   = _isLowEnd ? 0.038 : 0.022;
+                const nightFog = _isLowEnd ? 0.018 : 0.012;
+                const dayFog   = _isLowEnd ? 0.013 : 0.009;
                 scene.fog.density = nightFog + (dayFog - nightFog) * sunT;
 
                 // Cloud tint: orange at dawn/dusk, white at day, dark at night
@@ -3417,6 +3423,8 @@
                 for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
             }
             running = true;
+            // ── Auto-save every 30 seconds so position/inventory is never stale ──
+            setInterval(() => { if (running && currentUser) saveGame(); }, 30000);
             // ── Activate lights for all torches loaded from the server ──
             activeTorches.forEach(t => addTorchLight(t.x, t.y, t.z, t.k));
             updatePOV();
@@ -3475,7 +3483,7 @@
             setMenuProgress(30, 'BUILDING SCENE...');
             scene = new THREE.Scene();
             // ── Minecraft-style exponential fog ──
-            const fogDensity = _isLowEnd ? 0.045 : 0.027;
+            const fogDensity = _isLowEnd ? 0.018 : 0.009;
             scene.fog = new THREE.FogExp2(0x78A7FF, fogDensity);
             scene.background = new THREE.Color(0x78A7FF);
             playerGroup = new THREE.Group(); scene.add(playerGroup);
