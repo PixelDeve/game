@@ -89,6 +89,33 @@
         }
 
         /* ══════════════════════════════
+           HEALTH BAR
+        ══════════════════════════════ */
+        #health-bar-wrap {
+            position: absolute;
+            bottom: 64px;          /* sits just above the hotbar */
+            left: 12px;            /* bottom-left corner — out of view centre */
+            display: none;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 2px;
+            pointer-events: none;
+            z-index: 60;
+            max-width: 120px;      /* forces wrap after 5 hearts per row */
+        }
+        #health-bar-wrap.visible { display: flex; }
+        .heart {
+            width: 12px;
+            height: 12px;
+            flex-shrink: 0;
+        }
+        .heart svg {
+            width: 12px;
+            height: 12px;
+            display: block;
+        }
+
+        /* ══════════════════════════════
            HOTBAR
         ══════════════════════════════ */
         #hotbar-container {
@@ -3936,6 +3963,7 @@
             const wrap = document.getElementById('health-bar-wrap');
             if (!wrap) return;
             wrap.innerHTML = '';
+            const path = 'M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z';
             for (let i = 0; i < 10; i++) {
                 const hp2 = i * 2;
                 const full = health >= hp2 + 2;
@@ -3943,11 +3971,11 @@
                 const div = document.createElement('div');
                 div.className = 'heart';
                 if (full) {
-                    div.innerHTML = '<svg viewBox="0 0 16 16" fill="#e74c3c"><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z"/></svg>';
+                    div.innerHTML = `<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="${path}" fill="#e74c3c"/></svg>`;
                 } else if (half) {
-                    div.innerHTML = '<svg viewBox="0 0 16 16"><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z" fill="#555"/><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46z" fill="#e74c3c"/></svg>';
+                    div.innerHTML = `<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="${path}" fill="#555"/><clipPath id="hc"><rect x="0" y="0" width="8" height="16"/></clipPath><path d="${path}" fill="#e74c3c" clip-path="url(#hc)"/></svg>`;
                 } else {
-                    div.innerHTML = '<svg viewBox="0 0 16 16" fill="#555"><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z"/></svg>';
+                    div.innerHTML = `<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="${path}" fill="#444"/></svg>`;
                 }
                 wrap.appendChild(div);
             }
