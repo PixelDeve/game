@@ -812,12 +812,20 @@
         let activeTool = null;
 
         // Items sprite sheet: assets/items-opaque.png — 512×512, 16×16 px per item = 32 cols × 32 rows
-        // Row 0, cols 3-7 are the pickaxe set (confirmed by diagonal TR-bias shape analysis)
+        // Pickaxes: row 0 cols 3-7  |  Swords: row 7 cols 16-20
         const TOOLS = {
-            1001: { name: 'Wood Pick',    tier: 1, price: 50,   speedMod: 0.7, itemRow: 0, itemCol: 3 },
-            1002: { name: 'Stone Pick',   tier: 2, price: 150,  speedMod: 0.5, itemRow: 0, itemCol: 4 },
-            1003: { name: 'Iron Pick',    tier: 3, price: 500,  speedMod: 0.3, itemRow: 0, itemCol: 5 },
-            1004: { name: 'Diamond Pick', tier: 4, price: 1000, speedMod: 0.1, itemRow: 0, itemCol: 7 }
+            // ── Pickaxes ──
+            1001: { name: 'Wood Pick',     type:'pick',  price: 50,   sellPrice:15,  speedMod: 0.7,  itemRow: 0, itemCol: 3  },
+            1002: { name: 'Stone Pick',    type:'pick',  price: 150,  sellPrice:40,  speedMod: 0.5,  itemRow: 0, itemCol: 4  },
+            1003: { name: 'Iron Pick',     type:'pick',  price: 500,  sellPrice:120, speedMod: 0.3,  itemRow: 0, itemCol: 5  },
+            1004: { name: 'Gold Pick',     type:'pick',  price: 800,  sellPrice:200, speedMod: 0.25, itemRow: 0, itemCol: 6  },
+            1005: { name: 'Diamond Pick',  type:'pick',  price: 1000, sellPrice:300, speedMod: 0.1,  itemRow: 0, itemCol: 7  },
+            // ── Swords ──
+            2001: { name: 'Wood Sword',    type:'sword', price: 40,   sellPrice:10,  speedMod: 1.0,  itemRow: 7, itemCol: 16 },
+            2002: { name: 'Stone Sword',   type:'sword', price: 120,  sellPrice:30,  speedMod: 1.0,  itemRow: 7, itemCol: 17 },
+            2003: { name: 'Iron Sword',    type:'sword', price: 400,  sellPrice:100, speedMod: 1.0,  itemRow: 7, itemCol: 18 },
+            2004: { name: 'Gold Sword',    type:'sword', price: 600,  sellPrice:150, speedMod: 1.0,  itemRow: 7, itemCol: 19 },
+            2005: { name: 'Diamond Sword', type:'sword', price: 900,  sellPrice:250, speedMod: 1.0,  itemRow: 7, itemCol: 20 },
         };
 
         const SKINS = {
@@ -958,6 +966,7 @@
         })();
         // ── HELD-ITEM / HAND SYSTEM ──
         let hudScene = null, hudCamera = null, localHandGroup = null;
+        let localBodyHandMesh = null; // held item in world-space (3rd person)
         let _lastHeldItem = -999; // sentinel so first frame always updates
         const torchLights = {}; // "x,y,z" → THREE.PointLight // "wx,wy,wz" keys of manually broken plants
 
@@ -2428,10 +2437,9 @@
             geo.setIndex(indices);
             geo.computeVertexNormals();
 
-            // MeshLambertMaterial responds to scene lights (sun + ambient) so grass
-            // darkens at night and brightens at noon, matching the surrounding terrain.
-            // alphaTest:0.5 gives a hard cutout edge with no depth-sort artifacts.
-            const mat = new THREE.MeshLambertMaterial({
+            // MeshBasicMaterial — cross geometry has diagonal normals that cause
+            // Lambert shading to go black. We tint .color in the animate loop instead.
+            const mat = new THREE.MeshBasicMaterial({
                 map: grassPlantTexture,
                 side: THREE.DoubleSide,
                 transparent: false,
@@ -2640,7 +2648,10 @@
                     const thisKey = `${bx},${by},${bz}`;
                     if (mineTargetKey !== thisKey) { mineTargetKey = thisKey; mineHits = 0; }
                     mineHits++;
-                    const speedMult = activeTool ? activeTool.speedMod : 1.0;
+                    const _heldSlot = hotbarSlots[activeHotbarIndex];
+                    const _heldTool = _heldSlot && TOOLS[_heldSlot.id];
+                    const speedMult = _heldTool ? _heldTool.speedMod : 1.0;
+                    if (_heldTool) activeTool = _heldTool;
                     const hitsNeeded = Math.max(1, Math.ceil((BLOCKS[type].hardness || 1) * 4 * speedMult));
                     if (mineHits < hitsNeeded) return false; // not broken yet
                     mineTargetKey = null; mineHits = 0;
@@ -2750,18 +2761,20 @@
         function updatePOV() {
             raycaster.far = (povMode === 0) ? 5 : 12;
             if (povMode === 0) {
-                // First-person: bob controls camera.position each frame; just clear rotation
                 camera.rotation.y = 0;
                 if(externalModel) externalModel.visible = false;
                 if(localHandGroup) localHandGroup.visible = true;
+                if(localBodyHandMesh) localBodyHandMesh.visible = false;
             } else if (povMode === 1) {
                 camera.position.set(0.8, 0.5, povDist); camera.rotation.y = 0;
                 if(externalModel) externalModel.visible = true;
                 if(localHandGroup) localHandGroup.visible = false;
+                if(localBodyHandMesh) localBodyHandMesh.visible = true;
             } else {
                 camera.position.set(0, 0.5, -povDist); camera.rotation.y = Math.PI;
                 if(externalModel) externalModel.visible = true;
                 if(localHandGroup) localHandGroup.visible = false;
+                if(localBodyHandMesh) localBodyHandMesh.visible = true;
             }
         }
 
@@ -2885,7 +2898,17 @@
             return new THREE.Mesh(geo, mat);
         }
 
-        // Rebuild the local first-person hand mesh
+        function _disposeHandMesh(mesh, parent) {
+            if (!mesh) return;
+            if (parent) parent.remove(mesh);
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) {
+                if (mesh.material.map && mesh.material.map !== atlas && mesh.material.map !== itemsTexture) mesh.material.map.dispose();
+                mesh.material.dispose();
+            }
+        }
+
+        // Rebuild both first-person HUD hand and 3rd-person body hand
         function updateLocalHand() {
             if (!localHandGroup) return;
             const item = hotbarSlots[activeHotbarIndex];
@@ -2893,20 +2916,36 @@
             if (itemId === _lastHeldItem) return;
             _lastHeldItem = itemId;
 
-            // Dispose old mesh
+            // Dispose old HUD hand meshes
             while (localHandGroup.children.length) {
                 const c = localHandGroup.children[0];
                 localHandGroup.remove(c);
-                if (c.geometry) c.geometry.dispose();
-                if (c.material) { if (c.material.map && c.material.map !== atlas) c.material.map.dispose(); c.material.dispose(); }
+                _disposeHandMesh(c, null);
             }
+            // Dispose old body hand
+            if (localBodyHandMesh) {
+                _disposeHandMesh(localBodyHandMesh, playerGroup);
+                localBodyHandMesh = null;
+            }
+
             if (!itemId) return;
 
-            const mesh = createItemMesh(itemId);
-            if (mesh) {
-                // Tilt to show top+right face — Minecraft isometric hand angle
-                mesh.rotation.set(-0.55, 0.75, 0.25);
-                localHandGroup.add(mesh);
+            // First-person HUD mesh
+            const fpMesh = createItemMesh(itemId);
+            if (fpMesh) {
+                fpMesh.rotation.set(-0.55, 0.75, 0.25);
+                localHandGroup.add(fpMesh);
+            }
+
+            // 3rd-person world-space mesh
+            const tpMesh = createItemMesh(itemId);
+            if (tpMesh && playerGroup) {
+                tpMesh.scale.setScalar(0.52);
+                tpMesh.position.set(0.38, -0.78, 0.22);
+                tpMesh.rotation.set(-0.3, 0.3, 0.45);
+                tpMesh.visible = (povMode !== 0);
+                playerGroup.add(tpMesh);
+                localBodyHandMesh = tpMesh;
             }
         }
 
@@ -3317,12 +3356,23 @@
 
         function buyTool(id) {
             const t = TOOLS[id];
-            if(coins >= t.price) {
+            if (!t) return;
+            const numId = parseInt(id);
+            if (coins >= t.price) {
                 coins -= t.price;
-                activeTool = t;
-                currentMineDelay = 800 * t.speedMod;
-                updateCoinDisplay(); saveGame();
-                alert("Equipped " + t.name);
+                let added = false;
+                for (let i = 0; i < 30; i++) {
+                    if (inventory[i] && inventory[i].id === numId) { inventory[i].count++; added = true; break; }
+                }
+                if (!added) {
+                    for (let i = 0; i < 30; i++) {
+                        if (!inventory[i]) { inventory[i] = { id: numId, count: 1 }; break; }
+                    }
+                }
+                updateCoinDisplay(); updateHotbarFromInventory(); updateUI(); saveGame();
+                showToast('✔ Bought ' + t.name, '#2ecc71', '#2ecc71');
+            } else {
+                showToast('✘ Not enough coins', '#e74c3c', '#e74c3c');
             }
         }
 
@@ -3707,6 +3757,15 @@
                 // 3rd person: reset bob so switching POV is clean
                 _bobBobY = 0; _bobBobX = 0;
                 cameraPivot.rotation.z = 0;
+            }
+
+            // ── Sync grass plant brightness to day/night cycle ──
+            if (ambientLight) {
+                const brightness = Math.min(1.0, ambientLight.intensity * 1.1);
+                for (const k in grassPlantMeshes) {
+                    const gm = grassPlantMeshes[k];
+                    if (gm && gm.material) gm.material.color.setScalar(brightness);
+                }
             }
 
             // ── Main world render ──
