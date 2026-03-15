@@ -668,13 +668,19 @@
                 </div>
             </div>
             <div class="armor-slot-wrap">
+                <div class="armor-slot-label">Legs</div>
+                <div class="armor-slot" id="armor-slot-leggings" data-slot="leggings">
+                    <span class="armor-slot-empty">👖</span>
+                </div>
+            </div>
+            <div class="armor-slot-wrap">
                 <div class="armor-slot-label">Boots</div>
                 <div class="armor-slot" id="armor-slot-boots" data-slot="boots">
                     <span class="armor-slot-empty">👢</span>
                 </div>
             </div>
             <div style="flex:1; font-size:6px; color:#556; line-height:1.8; padding-left:8px;">
-                TAP ARMOR<br>IN INVENTORY<br>TO EQUIP
+                TAP ARMOR<br>IN INV<br>TO EQUIP
             </div>
         </div>
         <div id="inventory-grid"></div>
@@ -858,7 +864,7 @@
         let currentSkin = 'default';
         let ownedSkins = ['default']; // Default skin is always owned
         let activeTool = null;
-        let equippedArmor = { helmet: null, chestplate: null, boots: null }; // armor slot → ARMOR id or null
+        let equippedArmor = { helmet: null, chestplate: null, leggings: null, boots: null }; // armor slot → ARMOR id or null
 
         // Items sprite sheet: assets/items-opaque.png — 512×512, 16×16 px per item = 32 cols × 32 rows
         // VISUALLY CONFIRMED positions from sprite sheet inspection:
@@ -887,8 +893,8 @@
             2005: { name: 'Diamond Sword', type:'sword', price: 900,  sellPrice:250, speedMod: 1.0,  itemRow: 9, itemCol: 1  },
         };
 
-        // ── ARMOR — equippable items, shown as icon above player head ──
-        // Helmets r3c20-24 | Chestplates r1c17-21 | Boots r0c25-29
+        // ── ARMOR — equippable items, shown as composite icon above player head ──
+        // Helmets r3c20-24 | Chestplates r1c17-21 | Leggings r4c4-8 | Boots r0c25-29
         const ARMOR = {
             // Helmets
             3001: { name: 'Iron Helmet',     slot:'helmet',     defense:1, price:300,  sellPrice:80,  itemRow:3, itemCol:20 },
@@ -901,6 +907,12 @@
             3013: { name: 'Iron Chest',      slot:'chestplate', defense:3, price:800,  sellPrice:200, itemRow:1, itemCol:19 },
             3014: { name: 'Gold Chest',      slot:'chestplate', defense:3, price:1000, sellPrice:260, itemRow:1, itemCol:20 },
             3015: { name: 'Diamond Chest',   slot:'chestplate', defense:4, price:1500, sellPrice:400, itemRow:1, itemCol:21 },
+            // Leggings  (row 4, cols 4-8 — visually confirmed)
+            3031: { name: 'Leather Legs',    slot:'leggings',   defense:1, price:180,  sellPrice:45,  itemRow:4, itemCol:4  },
+            3032: { name: 'Chain Legs',      slot:'leggings',   defense:2, price:380,  sellPrice:95,  itemRow:4, itemCol:5  },
+            3033: { name: 'Iron Legs',       slot:'leggings',   defense:3, price:700,  sellPrice:175, itemRow:4, itemCol:6  },
+            3034: { name: 'Gold Legs',       slot:'leggings',   defense:3, price:900,  sellPrice:225, itemRow:4, itemCol:7  },
+            3035: { name: 'Diamond Legs',    slot:'leggings',   defense:4, price:1300, sellPrice:350, itemRow:4, itemCol:8  },
             // Boots
             3021: { name: 'Iron Boots',      slot:'boots',      defense:1, price:250,  sellPrice:60,  itemRow:0, itemCol:27 },
             3022: { name: 'Chain Boots',     slot:'boots',      defense:1, price:400,  sellPrice:100, itemRow:0, itemCol:26 },
@@ -1780,6 +1792,9 @@
                     moving: Math.hypot(vel.x || 0, vel.z || 0) > 0.1,
                     heldItem: (hotbarSlots[activeHotbarIndex] && hotbarSlots[activeHotbarIndex].count > 0) ? hotbarSlots[activeHotbarIndex].id : 0,
                     armorHelmet: equippedArmor.helmet || 0,
+                    armorChest: equippedArmor.chestplate || 0,
+                    armorLegs: equippedArmor.leggings || 0,
+                    armorBoots: equippedArmor.boots || 0,
                     skin: currentSkin,
                     coins: coins,
                     lastSeen: serverTimestamp()
@@ -1889,10 +1904,10 @@
             nameTag.position.y = 0.5;
             group.add(nameTag);
 
-            // Armor head icon sprite (shows equipped helmet above name)
-            const armorIconSprite = buildArmorHeadIcon(data.armorHelmet || 0);
+            // Composite armor sprite showing all equipped pieces
+            const armorIconSprite = buildArmorSpriteFromData(data);
             if (armorIconSprite) {
-                armorIconSprite.position.y = 0.9;
+                armorIconSprite.position.y = 0.88;
                 group.add(armorIconSprite);
             }
 
@@ -1923,13 +1938,19 @@
             p.lastSeenTime = Date.now();
             p.data = data;
             updateRemotePlayerHand(pid, data.heldItem || 0);
-            // Update armor head icon
-            const newHelmet = data.armorHelmet || 0;
-            if ((p.armorHelmetId || 0) !== newHelmet) {
-                p.armorHelmetId = newHelmet;
-                if (p.armorIconSprite) { p.group.remove(p.armorIconSprite); p.armorIconSprite.material.map.dispose(); p.armorIconSprite.material.dispose(); p.armorIconSprite = null; }
-                const s = buildArmorHeadIcon(newHelmet);
-                if (s) { s.position.y = 0.9; p.group.add(s); p.armorIconSprite = s; }
+            // Rebuild composite armor sprite when any piece changes
+            const _ah = data.armorHelmet || 0, _ac = data.armorChest || 0;
+            const _al = data.armorLegs || 0,   _ab = data.armorBoots || 0;
+            if (p.armorHelmetId !== _ah || p.armorChestId !== _ac || p.armorLegsId !== _al || p.armorBootsId !== _ab) {
+                p.armorHelmetId = _ah; p.armorChestId = _ac; p.armorLegsId = _al; p.armorBootsId = _ab;
+                if (p.armorIconSprite) {
+                    p.group.remove(p.armorIconSprite);
+                    if (p.armorIconSprite.material.map) p.armorIconSprite.material.map.dispose();
+                    p.armorIconSprite.material.dispose();
+                    p.armorIconSprite = null;
+                }
+                const s = buildArmorSpriteFromData(data);
+                if (s) { s.position.y = 0.88; p.group.add(s); p.armorIconSprite = s; }
             }
             
             if (p.mixer) {
@@ -3098,28 +3119,81 @@
             ctx.drawImage(src, sx, sy, ITEMS_CELL, ITEMS_CELL, 0, 0, canvas.width, canvas.height);
         }
 
-        // Build a floating sprite showing the equipped helmet above a player's head
-        function buildArmorHeadIcon(armorId) {
-            const a = ARMOR[armorId];
-            if (!a) return null;
-            const cvs = document.createElement('canvas'); cvs.width = 48; cvs.height = 48;
-            drawArmorIcon(cvs, armorId);
+        // Build a composite sprite showing ALL equipped armor slots side-by-side
+        // Each slot is a 16x16 cell; up to 4 cells drawn in a row → canvas 64x16
+        function buildArmorCompositeSprite(helmId, chestId, legsId, bootsId) {
+            const slots = [helmId, chestId, legsId, bootsId].filter(id => id && ARMOR[id]);
+            if (slots.length === 0) return null;
+
+            const cell = 16, n = slots.length;
+            const cvs = document.createElement('canvas');
+            cvs.width = cell * n; cvs.height = cell;
+            const ctx = cvs.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+
+            const drawSlot = (armorId, destX) => {
+                const a = ARMOR[armorId];
+                if (!a || !itemsTexture || !itemsTexture.image) return;
+                const sx = a.itemCol * ITEMS_CELL, sy = a.itemRow * ITEMS_CELL;
+                ctx.drawImage(itemsTexture.image, sx, sy, ITEMS_CELL, ITEMS_CELL, destX, 0, cell, cell);
+            };
+
+            const doRender = () => {
+                ctx.clearRect(0, 0, cvs.width, cvs.height);
+                slots.forEach((id, i) => drawSlot(id, i * cell));
+                if (sprite.material.map) sprite.material.map.needsUpdate = true;
+            };
+
             const tex = new THREE.CanvasTexture(cvs);
-            tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.NearestFilter;
             const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
             const sprite = new THREE.Sprite(mat);
-            sprite.scale.set(0.55, 0.55, 1);
+            // Width scales with number of slots; height fixed
+            sprite.scale.set(0.28 * n, 0.28, 1);
+
+            if (!itemsTexture) {
+                // Texture not loaded yet — retry in 300ms
+                const retryTimer = setInterval(() => {
+                    if (itemsTexture && itemsTexture.image) { doRender(); clearInterval(retryTimer); }
+                }, 300);
+            } else {
+                doRender();
+            }
             return sprite;
         }
 
-        // Build local player's own armor icon (shown above own head in 3rd-person)
+        // Build armor composite for a data object from Firebase
+        function buildArmorSpriteFromData(data) {
+            return buildArmorCompositeSprite(
+                data.armorHelmet || 0,
+                data.armorChest  || 0,
+                data.armorLegs   || 0,
+                data.armorBoots  || 0
+            );
+        }
+
+        // Local player's armor sprite (3rd-person only)
         let localArmorIconSprite = null;
         function updateLocalArmorIcon() {
-            if (localArmorIconSprite) { playerGroup.remove(localArmorIconSprite); localArmorIconSprite.material.map.dispose(); localArmorIconSprite.material.dispose(); localArmorIconSprite = null; }
-            const helmId = equippedArmor.helmet;
-            if (!helmId) return;
-            const s = buildArmorHeadIcon(helmId);
-            if (s && playerGroup) { s.position.y = 0.9; s.visible = (povMode !== 0); playerGroup.add(s); localArmorIconSprite = s; }
+            if (localArmorIconSprite) {
+                playerGroup.remove(localArmorIconSprite);
+                if (localArmorIconSprite.material.map) localArmorIconSprite.material.map.dispose();
+                localArmorIconSprite.material.dispose();
+                localArmorIconSprite = null;
+            }
+            const s = buildArmorCompositeSprite(
+                equippedArmor.helmet,
+                equippedArmor.chestplate,
+                equippedArmor.leggings,
+                equippedArmor.boots
+            );
+            if (s && playerGroup) {
+                s.position.y = 0.88;
+                s.visible = (povMode !== 0);
+                playerGroup.add(s);
+                localArmorIconSprite = s;
+            }
         }
 
         function fadeToAction(name, duration) {
@@ -3599,7 +3673,7 @@
         }
 
         function refreshArmorSlots() {
-            ['helmet','chestplate','boots'].forEach(slot => {
+            ['helmet','chestplate','leggings','boots'].forEach(slot => {
                 const el = document.getElementById('armor-slot-' + slot);
                 if (!el) return;
                 el.innerHTML = '';
@@ -3612,7 +3686,7 @@
                     el.classList.add('equipped');
                     el.title = ARMOR[armorId].name + ' (tap to unequip)';
                 } else {
-                    const icons = { helmet:'⛑', chestplate:'🥋', boots:'👢' };
+                    const icons = { helmet:'⛑', chestplate:'🥋', leggings:'👖', boots:'👢' };
                     el.innerHTML = '<span class="armor-slot-empty">' + (icons[slot]||'?') + '</span>';
                     el.title = 'No ' + slot + ' equipped';
                 }
