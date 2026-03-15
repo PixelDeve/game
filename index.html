@@ -268,6 +268,29 @@
         #settings-name-input:focus { border-color: rgba(74,170,255,0.7); background: rgba(255,255,255,0.12); }
 
         /* ══════════════════════════════
+           ARMOR EQUIP PANEL (inside inventory)
+        ══════════════════════════════ */
+        #armor-panel {
+            display: flex; gap: 8px; align-items: center; justify-content: center;
+            background: rgba(20,20,28,0.9); padding: 10px 14px;
+            border: 1.5px solid rgba(100,180,255,0.2); border-radius: 10px;
+            width: 100%; box-sizing: border-box;
+        }
+        .armor-slot-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .armor-slot-label { font-size: 5px; color: #888; letter-spacing: 1px; text-transform: uppercase; }
+        .armor-slot {
+            width: 44px; height: 44px; background: rgba(255,255,255,0.05);
+            border: 1.5px solid rgba(100,180,255,0.25); border-radius: 7px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; position: relative;
+            transition: background 0.12s, border-color 0.12s;
+        }
+        .armor-slot:hover { background: rgba(100,180,255,0.1); border-color: rgba(100,180,255,0.5); }
+        .armor-slot.equipped { border-color: #4af; background: rgba(68,170,255,0.15); }
+        .armor-slot canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+        .armor-slot-empty { font-size: 16px; opacity: 0.25; }
+
+        /* ══════════════════════════════
            INVENTORY OVERLAY
         ══════════════════════════════ */
         #inventory-overlay {
@@ -629,10 +652,34 @@
     </div>
 
     <div id="inventory-overlay">
-        <div style="color: white; margin-bottom: 10px; font-size: 10px;">INVENTORY</div>
+        <div style="color: white; margin-bottom: 6px; font-size: 10px;">INVENTORY</div>
+        <!-- Armor equip slots -->
+        <div id="armor-panel">
+            <div class="armor-slot-wrap">
+                <div class="armor-slot-label">Helmet</div>
+                <div class="armor-slot" id="armor-slot-helmet" data-slot="helmet">
+                    <span class="armor-slot-empty">⛑</span>
+                </div>
+            </div>
+            <div class="armor-slot-wrap">
+                <div class="armor-slot-label">Chest</div>
+                <div class="armor-slot" id="armor-slot-chestplate" data-slot="chestplate">
+                    <span class="armor-slot-empty">🥋</span>
+                </div>
+            </div>
+            <div class="armor-slot-wrap">
+                <div class="armor-slot-label">Boots</div>
+                <div class="armor-slot" id="armor-slot-boots" data-slot="boots">
+                    <span class="armor-slot-empty">👢</span>
+                </div>
+            </div>
+            <div style="flex:1; font-size:6px; color:#556; line-height:1.8; padding-left:8px;">
+                TAP ARMOR<br>IN INVENTORY<br>TO EQUIP
+            </div>
+        </div>
         <div id="inventory-grid"></div>
         <button id="del-mode-btn">DELETE MODE: OFF</button>
-        <button id="close-inv" class="menu-btn" style="margin-top: 15px; width: 160px;">CLOSE</button>
+        <button id="close-inv" class="menu-btn" style="margin-top: 10px; width: 160px;">CLOSE</button>
     </div>
 
     <div id="shop-overlay">
@@ -647,6 +694,7 @@
         <div id="shop-tab-bar">
           <div class="shop-tab active" data-tab="blocks" onclick="switchShopTab('blocks')">⬛ BLOCKS</div>
           <div class="shop-tab" data-tab="tools" onclick="switchShopTab('tools')">⛏ TOOLS</div>
+          <div class="shop-tab" data-tab="armor" onclick="switchShopTab('armor')">🛡 ARMOR</div>
           <div class="shop-tab" data-tab="skins" onclick="switchShopTab('skins')">🧍 SKINS</div>
         </div>
         <div id="shop-mode-row">
@@ -810,22 +858,54 @@
         let currentSkin = 'default';
         let ownedSkins = ['default']; // Default skin is always owned
         let activeTool = null;
+        let equippedArmor = { helmet: null, chestplate: null, boots: null }; // armor slot → ARMOR id or null
 
         // Items sprite sheet: assets/items-opaque.png — 512×512, 16×16 px per item = 32 cols × 32 rows
-        // Pickaxes: row 0 cols 3-7  |  Swords: row 7 cols 16-20
+        // VISUALLY CONFIRMED positions from sprite sheet inspection:
+        //   Axes:     r0  c3-c7   (Wood/Stone/Iron/Gold/Diamond)
+        //   Pickaxes: r4  c27-c31 (Wood/Stone/Iron/Gold/Diamond)
+        //   Swords:   r8c29-r8c31 + r9c0-r9c1 (Wood/Stone/Iron/Gold/Diamond)
+        //   Armor:    Helmets r3c20-24, Chestplates r1c17-21, Boots r0c25-29
         const TOOLS = {
-            // ── Pickaxes ──
-            1001: { name: 'Wood Pick',     type:'pick',  price: 50,   sellPrice:15,  speedMod: 0.7,  itemRow: 0, itemCol: 3  },
-            1002: { name: 'Stone Pick',    type:'pick',  price: 150,  sellPrice:40,  speedMod: 0.5,  itemRow: 0, itemCol: 4  },
-            1003: { name: 'Iron Pick',     type:'pick',  price: 500,  sellPrice:120, speedMod: 0.3,  itemRow: 0, itemCol: 5  },
-            1004: { name: 'Gold Pick',     type:'pick',  price: 800,  sellPrice:200, speedMod: 0.25, itemRow: 0, itemCol: 6  },
-            1005: { name: 'Diamond Pick',  type:'pick',  price: 1000, sellPrice:300, speedMod: 0.1,  itemRow: 0, itemCol: 7  },
-            // ── Swords ──
-            2001: { name: 'Wood Sword',    type:'sword', price: 40,   sellPrice:10,  speedMod: 1.0,  itemRow: 7, itemCol: 16 },
-            2002: { name: 'Stone Sword',   type:'sword', price: 120,  sellPrice:30,  speedMod: 1.0,  itemRow: 7, itemCol: 17 },
-            2003: { name: 'Iron Sword',    type:'sword', price: 400,  sellPrice:100, speedMod: 1.0,  itemRow: 7, itemCol: 18 },
-            2004: { name: 'Gold Sword',    type:'sword', price: 600,  sellPrice:150, speedMod: 1.0,  itemRow: 7, itemCol: 19 },
-            2005: { name: 'Diamond Sword', type:'sword', price: 900,  sellPrice:250, speedMod: 1.0,  itemRow: 7, itemCol: 20 },
+            // ── Pickaxes (row 4 cols 27-31) ──
+            1001: { name: 'Wood Pick',     type:'pick',  price: 50,   sellPrice:15,  speedMod: 0.7,  itemRow: 4, itemCol: 27 },
+            1002: { name: 'Stone Pick',    type:'pick',  price: 150,  sellPrice:40,  speedMod: 0.5,  itemRow: 4, itemCol: 28 },
+            1003: { name: 'Iron Pick',     type:'pick',  price: 500,  sellPrice:120, speedMod: 0.3,  itemRow: 4, itemCol: 29 },
+            1004: { name: 'Gold Pick',     type:'pick',  price: 800,  sellPrice:200, speedMod: 0.25, itemRow: 4, itemCol: 30 },
+            1005: { name: 'Diamond Pick',  type:'pick',  price: 1000, sellPrice:300, speedMod: 0.1,  itemRow: 4, itemCol: 31 },
+            // ── Axes (row 0 cols 3-7) ──
+            1101: { name: 'Wood Axe',      type:'axe',   price: 60,   sellPrice:18,  speedMod: 0.65, itemRow: 0, itemCol: 3  },
+            1102: { name: 'Stone Axe',     type:'axe',   price: 180,  sellPrice:50,  speedMod: 0.45, itemRow: 0, itemCol: 4  },
+            1103: { name: 'Iron Axe',      type:'axe',   price: 550,  sellPrice:140, speedMod: 0.28, itemRow: 0, itemCol: 5  },
+            1104: { name: 'Gold Axe',      type:'axe',   price: 850,  sellPrice:220, speedMod: 0.22, itemRow: 0, itemCol: 6  },
+            1105: { name: 'Diamond Axe',   type:'axe',   price: 1100, sellPrice:320, speedMod: 0.08, itemRow: 0, itemCol: 7  },
+            // ── Swords (r8c29-31 + r9c0-1) ──
+            2001: { name: 'Wood Sword',    type:'sword', price: 40,   sellPrice:10,  speedMod: 1.0,  itemRow: 8, itemCol: 29 },
+            2002: { name: 'Stone Sword',   type:'sword', price: 120,  sellPrice:30,  speedMod: 1.0,  itemRow: 8, itemCol: 30 },
+            2003: { name: 'Iron Sword',    type:'sword', price: 400,  sellPrice:100, speedMod: 1.0,  itemRow: 8, itemCol: 31 },
+            2004: { name: 'Gold Sword',    type:'sword', price: 600,  sellPrice:150, speedMod: 1.0,  itemRow: 9, itemCol: 0  },
+            2005: { name: 'Diamond Sword', type:'sword', price: 900,  sellPrice:250, speedMod: 1.0,  itemRow: 9, itemCol: 1  },
+        };
+
+        // ── ARMOR — equippable items, shown as icon above player head ──
+        // Helmets r3c20-24 | Chestplates r1c17-21 | Boots r0c25-29
+        const ARMOR = {
+            // Helmets
+            3001: { name: 'Iron Helmet',     slot:'helmet',     defense:1, price:300,  sellPrice:80,  itemRow:3, itemCol:20 },
+            3002: { name: 'Chain Helmet',    slot:'helmet',     defense:2, price:500,  sellPrice:130, itemRow:3, itemCol:21 },
+            3003: { name: 'Gold Helmet',     slot:'helmet',     defense:2, price:700,  sellPrice:180, itemRow:3, itemCol:23 },
+            3004: { name: 'Diamond Helmet',  slot:'helmet',     defense:3, price:1200, sellPrice:350, itemRow:3, itemCol:24 },
+            // Chestplates
+            3011: { name: 'Leather Chest',   slot:'chestplate', defense:1, price:200,  sellPrice:50,  itemRow:1, itemCol:17 },
+            3012: { name: 'Chain Chest',     slot:'chestplate', defense:2, price:450,  sellPrice:110, itemRow:1, itemCol:18 },
+            3013: { name: 'Iron Chest',      slot:'chestplate', defense:3, price:800,  sellPrice:200, itemRow:1, itemCol:19 },
+            3014: { name: 'Gold Chest',      slot:'chestplate', defense:3, price:1000, sellPrice:260, itemRow:1, itemCol:20 },
+            3015: { name: 'Diamond Chest',   slot:'chestplate', defense:4, price:1500, sellPrice:400, itemRow:1, itemCol:21 },
+            // Boots
+            3021: { name: 'Iron Boots',      slot:'boots',      defense:1, price:250,  sellPrice:60,  itemRow:0, itemCol:27 },
+            3022: { name: 'Chain Boots',     slot:'boots',      defense:1, price:400,  sellPrice:100, itemRow:0, itemCol:26 },
+            3023: { name: 'Gold Boots',      slot:'boots',      defense:2, price:650,  sellPrice:160, itemRow:0, itemCol:28 },
+            3024: { name: 'Diamond Boots',   slot:'boots',      defense:2, price:1100, sellPrice:300, itemRow:0, itemCol:29 },
         };
 
         const SKINS = {
@@ -1358,6 +1438,7 @@
             if (!item) return c;
             const block = BLOCKS[item.id];
             const tool  = TOOLS[item.id];
+            const armor = ARMOR[item.id];
             if (block && block.tiles) {
                 const t = block.tiles[4];
                 const ctx = c.getContext('2d');
@@ -1366,6 +1447,8 @@
                 ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 24, 24);
             } else if (tool && tool.itemRow != null) {
                 drawToolIcon(c, tool);
+            } else if (armor && armor.itemRow != null) {
+                drawArmorIcon(c, item.id);
             }
             return c;
         }
@@ -1696,6 +1779,7 @@
                     name: userDisplayName,
                     moving: Math.hypot(vel.x || 0, vel.z || 0) > 0.1,
                     heldItem: (hotbarSlots[activeHotbarIndex] && hotbarSlots[activeHotbarIndex].count > 0) ? hotbarSlots[activeHotbarIndex].id : 0,
+                    armorHelmet: equippedArmor.helmet || 0,
                     skin: currentSkin,
                     coins: coins,
                     lastSeen: serverTimestamp()
@@ -1805,11 +1889,19 @@
             nameTag.position.y = 0.5;
             group.add(nameTag);
 
+            // Armor head icon sprite (shows equipped helmet above name)
+            const armorIconSprite = buildArmorHeadIcon(data.armorHelmet || 0);
+            if (armorIconSprite) {
+                armorIconSprite.position.y = 0.9;
+                group.add(armorIconSprite);
+            }
+
             scene.add(group);
             const p = { 
                 group, 
                 model, 
                 nameTag,
+                armorIconSprite: armorIconSprite || null,
                 mixer: pMixer, 
                 actions: pActions,
                 currentAction: 'Idle',
@@ -1828,11 +1920,17 @@
             if (!p) return;
             p.targetPos.set(data.x, data.y, data.z);
             p.targetRot = data.ry;
-            // Update timestamp whenever we receive data from Firebase
             p.lastSeenTime = Date.now();
             p.data = data;
-            // Sync held item in their hand
             updateRemotePlayerHand(pid, data.heldItem || 0);
+            // Update armor head icon
+            const newHelmet = data.armorHelmet || 0;
+            if ((p.armorHelmetId || 0) !== newHelmet) {
+                p.armorHelmetId = newHelmet;
+                if (p.armorIconSprite) { p.group.remove(p.armorIconSprite); p.armorIconSprite.material.map.dispose(); p.armorIconSprite.material.dispose(); p.armorIconSprite = null; }
+                const s = buildArmorHeadIcon(newHelmet);
+                if (s) { s.position.y = 0.9; p.group.add(s); p.armorIconSprite = s; }
+            }
             
             if (p.mixer) {
                 const isMoving = data.moving || p.targetPos.distanceTo(p.group.position) > 0.05;
@@ -1983,6 +2081,7 @@
                     currentSkin: currentSkin,
                     ownedSkins: ownedSkins,
                     activeTool: activeTool,
+                    equippedArmor: equippedArmor,
                     ...pos
                 }, { merge: true });
             }
@@ -2009,6 +2108,7 @@
                         currentSkin = saved.currentSkin || 'default';
                         ownedSkins = saved.ownedSkins || ['default'];
                         activeTool = saved.activeTool || null;
+                        if (saved.equippedArmor) equippedArmor = saved.equippedArmor;
                         if (saved.px !== undefined) {
                             savedSpawnPos = { x: saved.px, y: saved.py, z: saved.pz, ry: saved.ry || 0 };
                         }
@@ -2765,16 +2865,19 @@
                 if(externalModel) externalModel.visible = false;
                 if(localHandGroup) localHandGroup.visible = true;
                 if(localBodyHandMesh) localBodyHandMesh.visible = false;
+                if(localArmorIconSprite) localArmorIconSprite.visible = false;
             } else if (povMode === 1) {
                 camera.position.set(0.8, 0.5, povDist); camera.rotation.y = 0;
                 if(externalModel) externalModel.visible = true;
                 if(localHandGroup) localHandGroup.visible = false;
                 if(localBodyHandMesh) localBodyHandMesh.visible = true;
+                if(localArmorIconSprite) localArmorIconSprite.visible = true;
             } else {
                 camera.position.set(0, 0.5, -povDist); camera.rotation.y = Math.PI;
                 if(externalModel) externalModel.visible = true;
                 if(localHandGroup) localHandGroup.visible = false;
                 if(localBodyHandMesh) localBodyHandMesh.visible = true;
+                if(localArmorIconSprite) localArmorIconSprite.visible = true;
             }
         }
 
@@ -2977,6 +3080,46 @@
             mesh.rotation.set(-0.3, 0.3, 0.45);
             p.handMesh = mesh;
             p.group.add(mesh);
+        }
+
+        // Draw an armor item icon onto a 2D canvas from items-opaque sprite sheet
+        function drawArmorIcon(canvas, armorId) {
+            const a = ARMOR[armorId];
+            if (!a || a.itemRow == null) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (!itemsTexture || !itemsTexture.image) {
+                setTimeout(() => drawArmorIcon(canvas, armorId), 300);
+                return;
+            }
+            const src = itemsTexture.image;
+            const sx = a.itemCol * ITEMS_CELL, sy = a.itemRow * ITEMS_CELL;
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(src, sx, sy, ITEMS_CELL, ITEMS_CELL, 0, 0, canvas.width, canvas.height);
+        }
+
+        // Build a floating sprite showing the equipped helmet above a player's head
+        function buildArmorHeadIcon(armorId) {
+            const a = ARMOR[armorId];
+            if (!a) return null;
+            const cvs = document.createElement('canvas'); cvs.width = 48; cvs.height = 48;
+            drawArmorIcon(cvs, armorId);
+            const tex = new THREE.CanvasTexture(cvs);
+            tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(0.55, 0.55, 1);
+            return sprite;
+        }
+
+        // Build local player's own armor icon (shown above own head in 3rd-person)
+        let localArmorIconSprite = null;
+        function updateLocalArmorIcon() {
+            if (localArmorIconSprite) { playerGroup.remove(localArmorIconSprite); localArmorIconSprite.material.map.dispose(); localArmorIconSprite.material.dispose(); localArmorIconSprite = null; }
+            const helmId = equippedArmor.helmet;
+            if (!helmId) return;
+            const s = buildArmorHeadIcon(helmId);
+            if (s && playerGroup) { s.position.y = 0.9; s.visible = (povMode !== 0); playerGroup.add(s); localArmorIconSprite = s; }
         }
 
         function fadeToAction(name, duration) {
@@ -3216,12 +3359,13 @@
             const isOpening = overlay.style.display !== 'flex';
             overlay.style.display = isOpening ? 'flex' : 'none';
             if(isOpening) {
+                refreshArmorSlots();
                 const grid = document.getElementById('inventory-grid'); grid.innerHTML = '';
                 inventory.forEach((item, i) => {
                     const slot = document.createElement('div'); slot.className = 'slot' + (i < 8 ? ' active' : '');
                     if(item) {
                         const c = document.createElement('canvas'); c.width=32; c.height=32;
-                        const blk = BLOCKS[item.id], tl = TOOLS[item.id];
+                        const blk = BLOCKS[item.id], tl = TOOLS[item.id], ar = ARMOR[item.id];
                         if (blk && blk.tiles) {
                             const t = blk.tiles[4]; const ctx = c.getContext('2d');
                             const tx = (t % ATLAS_COLS) * 32, ty = Math.floor(t / ATLAS_COLS) * 32;
@@ -3229,13 +3373,18 @@
                             ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 32, 32);
                         } else if (tl && tl.itemRow != null) {
                             drawToolIcon(c, tl);
+                        } else if (ar && ar.itemRow != null) {
+                            drawArmorIcon(c, item.id);
                         }
                         slot.appendChild(c);
                         const cnt = document.createElement('div'); cnt.className = 'slot-count'; cnt.innerText = item.count;
                         slot.appendChild(cnt);
+                        // Armor item tooltip
+                        if (ar) { slot.title = ar.name + (ar.defense ? ' (DEF +' + ar.defense + ')' : '') + '\nTap to equip'; }
                         slot.onclick = () => {
-                            if(deleteMode) { inventory[i] = null; updateHotbarFromInventory(); updateUI(); toggleInventory(); toggleInventory(); }
-                        }
+                            if(deleteMode) { inventory[i] = null; updateHotbarFromInventory(); updateUI(); toggleInventory(); toggleInventory(); return; }
+                            if(ar) { equipArmor(i); toggleInventory(); toggleInventory(); return; }
+                        };
                     }
                     grid.appendChild(slot);
                 });
@@ -3270,6 +3419,11 @@
                 Object.keys(TOOLS).forEach(id => {
                     const t = TOOLS[id];
                     createShopItem(grid, t.name, t.price, t, 'tool', () => buyTool(id), (e) => e.preventDefault());
+                });
+            } else if(tab === 'armor') {
+                Object.keys(ARMOR).forEach(id => {
+                    const a = ARMOR[id];
+                    createShopItem(grid, a.name, a.price, a, 'armor', () => buyArmor(id), (e) => e.preventDefault());
                 });
             } else if(tab === 'skins') {
                 Object.keys(SKINS).forEach(id => {
@@ -3316,6 +3470,10 @@
             } else if (type === 'tool' && itemData.itemRow != null) {
                 const c = document.createElement('canvas'); c.width = 32; c.height = 32;
                 drawToolIcon(c, itemData);
+                el.appendChild(c);
+            } else if (type === 'armor' && itemData.itemRow != null) {
+                const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+                drawArmorIcon(c, Object.keys(ARMOR).find(k => ARMOR[k] === itemData));
                 el.appendChild(c);
             }
 
@@ -3374,6 +3532,92 @@
             } else {
                 showToast('✘ Not enough coins', '#e74c3c', '#e74c3c');
             }
+        }
+
+        function buyArmor(id) {
+            const a = ARMOR[id];
+            if (!a) return;
+            const numId = parseInt(id);
+            if (coins >= a.price) {
+                coins -= a.price;
+                let added = false;
+                for (let i = 0; i < 30; i++) {
+                    if (inventory[i] && inventory[i].id === numId) { inventory[i].count++; added = true; break; }
+                }
+                if (!added) {
+                    for (let i = 0; i < 30; i++) {
+                        if (!inventory[i]) { inventory[i] = { id: numId, count: 1 }; break; }
+                    }
+                }
+                updateCoinDisplay(); updateHotbarFromInventory(); updateUI(); saveGame();
+                showToast('✔ Bought ' + a.name, '#4af', '#4af');
+            } else {
+                showToast('✘ Not enough coins', '#e74c3c', '#e74c3c');
+            }
+        }
+
+        function equipArmor(invIndex) {
+            const item = inventory[invIndex];
+            if (!item) return;
+            const a = ARMOR[item.id];
+            if (!a) return;
+            const slot = a.slot;
+            // Unequip current piece back to inventory (if any)
+            const prev = equippedArmor[slot];
+            if (prev) {
+                let returned = false;
+                for (let i = 0; i < 30; i++) {
+                    if (inventory[i] && inventory[i].id === prev) { inventory[i].count++; returned = true; break; }
+                }
+                if (!returned) for (let i = 0; i < 30; i++) { if (!inventory[i]) { inventory[i] = { id: prev, count: 1 }; break; } }
+            }
+            // Equip the new piece (consume 1 from inventory)
+            item.count--;
+            if (item.count <= 0) inventory[invIndex] = null;
+            equippedArmor[slot] = parseInt(item.id);
+            updateHotbarFromInventory(); updateUI();
+            refreshArmorSlots();
+            updateLocalArmorIcon();
+            saveGame();
+            showToast('⛨ Equipped ' + a.name, '#4af', '#4af');
+        }
+
+        function unequipArmor(slot) {
+            const armorId = equippedArmor[slot];
+            if (!armorId) return;
+            let returned = false;
+            for (let i = 0; i < 30; i++) {
+                if (inventory[i] && inventory[i].id === armorId) { inventory[i].count++; returned = true; break; }
+            }
+            if (!returned) for (let i = 0; i < 30; i++) { if (!inventory[i]) { inventory[i] = { id: armorId, count: 1 }; break; } }
+            equippedArmor[slot] = null;
+            updateHotbarFromInventory(); updateUI();
+            refreshArmorSlots();
+            updateLocalArmorIcon();
+            saveGame();
+            showToast('Unequipped armor', '#aaa', '#555');
+        }
+
+        function refreshArmorSlots() {
+            ['helmet','chestplate','boots'].forEach(slot => {
+                const el = document.getElementById('armor-slot-' + slot);
+                if (!el) return;
+                el.innerHTML = '';
+                el.classList.remove('equipped');
+                const armorId = equippedArmor[slot];
+                if (armorId && ARMOR[armorId]) {
+                    const c = document.createElement('canvas'); c.width = 36; c.height = 36;
+                    drawArmorIcon(c, armorId);
+                    el.appendChild(c);
+                    el.classList.add('equipped');
+                    el.title = ARMOR[armorId].name + ' (tap to unequip)';
+                } else {
+                    const icons = { helmet:'⛑', chestplate:'🥋', boots:'👢' };
+                    el.innerHTML = '<span class="armor-slot-empty">' + (icons[slot]||'?') + '</span>';
+                    el.title = 'No ' + slot + ' equipped';
+                }
+                el.onclick = () => { if (equippedArmor[slot]) unequipArmor(slot); };
+            });
         }
 
         function buySkin(id) {
@@ -3475,6 +3719,8 @@
                         ctx.drawImage(atlas.image, tx, ty, 32, 32, 0, 0, 24, 24);
                     } else if (tool && tool.itemRow != null) {
                         drawToolIcon(c, tool);
+                    } else if (ARMOR[item.id] && ARMOR[item.id].itemRow != null) {
+                        drawArmorIcon(c, item.id);
                     }
                     s.appendChild(c);
                     const cnt = document.createElement('div'); cnt.className = 'slot-count'; cnt.innerText = item.count; s.appendChild(cnt);
