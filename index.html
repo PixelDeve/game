@@ -496,6 +496,7 @@
         #start-btn:hover  { transform: translateY(-2px); box-shadow: 0 0 30px rgba(0,255,0,0.4), 0 6px 0 #063; }
         #start-btn:active { transform: translateY(2px); box-shadow: 0 0 10px rgba(0,255,0,0.2), 0 2px 0 #063; }
         @keyframes btnGlow { 0%,100% { box-shadow: 0 0 20px rgba(0,255,0,0.3), 0 4px 0 #063; } 50% { box-shadow: 0 0 40px rgba(0,255,0,0.5), 0 4px 0 #063; } }
+        @keyframes dmgFade { 0% { opacity:1; } 100% { opacity:0; } }
 
         /* ══════════════════════════════
            JOIN LOADING SCREEN
@@ -577,6 +578,10 @@
                 <input type="text" id="chat-input" placeholder="..." maxlength="50">
                 <button id="chat-send-btn">></button>
             </div>
+        </div>
+
+        <!-- Health Bar -->
+        <div id="health-bar-wrap">
         </div>
 
         <div id="hotbar-container">
@@ -865,6 +870,9 @@
         let ownedSkins = ['default']; // Default skin is always owned
         let activeTool = null;
         let equippedArmor = { helmet: null, chestplate: null, leggings: null, boots: null }; // armor slot → ARMOR id or null
+        let health = 20, maxHealth = 20;
+        let _lastDamageTime = 0, _fallVelPrev = 0, _lastAttackTime = 0;
+        let _lastKilledBy = null; // 'fall' | pid — determines loot drop on death
 
         // Items sprite sheet: assets/items-opaque.png — 512×512, 16×16 px per item = 32 cols × 32 rows
         // VISUALLY CONFIRMED positions from sprite sheet inspection:
@@ -886,11 +894,11 @@
             1104: { name: 'Gold Axe',      type:'axe',   price: 850,  sellPrice:220, speedMod: 0.22, itemRow: 0, itemCol: 6  },
             1105: { name: 'Diamond Axe',   type:'axe',   price: 1100, sellPrice:320, speedMod: 0.08, itemRow: 0, itemCol: 7  },
             // ── Swords (r8c29-31 + r9c0-1) ──
-            2001: { name: 'Wood Sword',    type:'sword', price: 40,   sellPrice:10,  speedMod: 1.0,  itemRow: 8, itemCol: 29 },
-            2002: { name: 'Stone Sword',   type:'sword', price: 120,  sellPrice:30,  speedMod: 1.0,  itemRow: 8, itemCol: 30 },
-            2003: { name: 'Iron Sword',    type:'sword', price: 400,  sellPrice:100, speedMod: 1.0,  itemRow: 8, itemCol: 31 },
-            2004: { name: 'Gold Sword',    type:'sword', price: 600,  sellPrice:150, speedMod: 1.0,  itemRow: 9, itemCol: 0  },
-            2005: { name: 'Diamond Sword', type:'sword', price: 900,  sellPrice:250, speedMod: 1.0,  itemRow: 9, itemCol: 1  },
+            2001: { name: 'Wood Sword',    type:'sword', price: 40,   sellPrice:10,  speedMod: 1.0, damage:3, itemRow: 8, itemCol: 29 },
+            2002: { name: 'Stone Sword',   type:'sword', price: 120,  sellPrice:30,  speedMod: 1.0, damage:4, itemRow: 8, itemCol: 30 },
+            2003: { name: 'Iron Sword',    type:'sword', price: 400,  sellPrice:100, speedMod: 1.0, damage:5, itemRow: 8, itemCol: 31 },
+            2004: { name: 'Gold Sword',    type:'sword', price: 600,  sellPrice:150, speedMod: 1.0, damage:5, itemRow: 9, itemCol: 0  },
+            2005: { name: 'Diamond Sword', type:'sword', price: 900,  sellPrice:250, speedMod: 1.0, damage:6, itemRow: 9, itemCol: 1  },
         };
 
         // ── ARMOR — equippable items, shown as composite icon above player head ──
@@ -1694,11 +1702,42 @@
                                 if (running) { refreshChunk(d.x, d.z); }
                             }
                         } else if (d.action === 'BREAK_GRASS') {
-                            // Restore broken grass plant (local + other players)
                             brokenGrassPlants.add(key);
                             if (running) refreshChunk(d.x, d.z);
+                        } else if (d.action === 'HIT') {
+                            // Only the targeted player processes this
+                            if (d.target === userId && running) {
+                                takeDamage(d.damage || 2, d.author);
+                                const attName = d.authorName || 'Someone';
+                                showToast('⚔ ' + attName + ' hit you for ' + (d.damage||2) + ' dmg!', '#e74c3c', '#e74c3c');
+                            }
+                        } else if (d.action === 'LOOT_DROP') {
+                            // Only the killer collects the loot
+                            if (d.killer === userId && running) {
+                                const droppedItems = d.items || [];
+                                const droppedCoins = d.coins || 0;
+                                // Add items to killer's inventory
+                                for (const item of droppedItems) {
+                                    if (!item) continue;
+                                    let stacked = false;
+                                    for (let i = 0; i < 30; i++) {
+                                        if (inventory[i] && inventory[i].id === item.id) {
+                                            inventory[i].count += item.count; stacked = true; break;
+                                        }
+                                    }
+                                    if (!stacked) {
+                                        for (let i = 0; i < 30; i++) {
+                                            if (!inventory[i]) { inventory[i] = { id: item.id, count: item.count }; break; }
+                                        }
+                                    }
+                                }
+                                coins += droppedCoins;
+                                updateHotbarFromInventory(); updateCoinDisplay(); updateUI(); saveGame();
+                                const victimName = d.author ? d.author.substr(0,8) : 'a player';
+                                showToast('💰 Looted ' + victimName + '! +' + droppedCoins + ' coins + ' + droppedItems.filter(Boolean).length + ' items', '#FFD700', '#FFD700');
+                            }
                         }
-                        if (running && d.action !== 'TOGGLE' && d.action !== 'BREAK_GRASS') refreshChunk(d.x, d.z);
+                        if (running && !['TOGGLE','BREAK_GRASS','HIT','LOOT_DROP'].includes(d.action)) refreshChunk(d.x, d.z);
                     }
                 });
             });
@@ -2000,7 +2039,7 @@
 
         function broadcastAction(type, data) { 
             if (!currentUser) return;
-            if (type === 'PLACE' || type === 'BREAK' || type === 'TOGGLE' || type === 'BREAK_GRASS') {
+            if (type === 'PLACE' || type === 'BREAK' || type === 'TOGGLE' || type === 'BREAK_GRASS' || type === 'HIT' || type === 'LOOT_DROP') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
                     ...data,
                     author: userId,
@@ -2602,6 +2641,52 @@
 
         function interact(place) {
             raycaster.setFromCamera({x:0, y:0}, camera);
+
+            // ── PvP: left-click hits nearby players (3.5 block range) ──
+            if (!place) {
+                const now = Date.now();
+                if (now - _lastAttackTime >= 500) {
+                    const ray = new THREE.Raycaster();
+                    ray.setFromCamera({x:0, y:0}, camera);
+                    ray.far = 3.5;
+                    for (const pid in otherPlayers) {
+                        const p = otherPlayers[pid];
+                        if (!p || !p.group) continue;
+                        const centre = p.group.position.clone().add(new THREE.Vector3(0, -0.6, 0));
+                        const sphere = new THREE.Sphere(centre, 0.75);
+                        if (ray.ray.intersectsSphere(sphere)) {
+                            _lastAttackTime = now;
+                            const heldSlot = hotbarSlots[activeHotbarIndex];
+                            const heldTool = heldSlot && TOOLS[heldSlot.id];
+                            const dmg = (heldTool && heldTool.type === 'sword') ? (heldTool.damage || 3) : 1;
+                            // Send HIT to Firebase — target will receive and take damage
+                            if (currentUser) {
+                                addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
+                                    action: 'HIT',
+                                    target: pid,
+                                    damage: dmg,
+                                    author: userId,
+                                    authorName: userDisplayName,
+                                    x: 0, y: 0, z: 0,
+                                    timestamp: serverTimestamp()
+                                });
+                            }
+                            // Flash hit player red
+                            p.group.traverse(child => {
+                                if (child.isMesh && child.material && child.material.color) {
+                                    const orig = child.material.color.clone();
+                                    child.material.color.setHex(0xff2222);
+                                    setTimeout(() => { if (child.material) child.material.color.copy(orig); }, 150);
+                                }
+                            });
+                            const pName = (p.data && p.data.name) || pid.substr(0,8);
+                            showToast('⚔ Hit ' + pName + ' for ' + dmg + '!', '#e67e22', '#e67e22');
+                            return true;
+                        }
+                    }
+                }
+            }
+
             const hits = raycaster.intersectObjects(clickables);
             if(hits.length > 0) {
                 const h = hits[0], n = h.face.normal;
@@ -2920,8 +3005,8 @@
             // Hand group is parented to the HUD camera → always in corner of screen
             localHandGroup = new THREE.Group();
             // Default resting position: bottom-right, rotated naturally
-            localHandGroup.position.set(0.52, -0.52, -0.85);
-            localHandGroup.rotation.set(0.1, -0.25, 0.05);
+            localHandGroup.position.set(0.62, -0.62, -0.75);
+            localHandGroup.rotation.set(0.18, -0.35, 0.08);
             hudCamera.add(localHandGroup);
 
             window.addEventListener('resize', () => {
@@ -2931,7 +3016,7 @@
 
         // Build a 0.5-unit box with per-face atlas UV (mirrors emitBox logic)
         function buildBlockHandGeo(tiles) {
-            const S = 0.5;
+            const S = 0.28; // smaller block in first-person hand — was 0.5
             const HP = 0.5, invW = 1 / (ATLAS_COLS * 32), invH = 1 / (ATLAS_ROWS * 32);
             const pos = [], nm = [], uv = [], idx = [];
             let v = 0;
@@ -3057,6 +3142,7 @@
             // First-person HUD mesh
             const fpMesh = createItemMesh(itemId);
             if (fpMesh) {
+                fpMesh.scale.setScalar(0.72); // smaller in first-person hand
                 fpMesh.rotation.set(-0.55, 0.75, 0.25);
                 localHandGroup.add(fpMesh);
             }
@@ -3845,6 +3931,98 @@
             }
         }
 
+        // ── HEALTH SYSTEM ──
+        function updateHealthBar() {
+            const wrap = document.getElementById('health-bar-wrap');
+            if (!wrap) return;
+            wrap.innerHTML = '';
+            for (let i = 0; i < 10; i++) {
+                const hp2 = i * 2;
+                const full = health >= hp2 + 2;
+                const half = !full && health >= hp2 + 1;
+                const div = document.createElement('div');
+                div.className = 'heart';
+                if (full) {
+                    div.innerHTML = '<svg viewBox="0 0 16 16" fill="#e74c3c"><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z"/></svg>';
+                } else if (half) {
+                    div.innerHTML = '<svg viewBox="0 0 16 16"><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z" fill="#555"/><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46z" fill="#e74c3c"/></svg>';
+                } else {
+                    div.innerHTML = '<svg viewBox="0 0 16 16" fill="#555"><path d="M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z"/></svg>';
+                }
+                wrap.appendChild(div);
+            }
+        }
+
+        function getTotalDefense() {
+            let def = 0;
+            for (const slot of ['helmet','chestplate','leggings','boots']) {
+                const id = equippedArmor[slot];
+                if (id && ARMOR[id]) def += ARMOR[id].defense || 0;
+            }
+            return def; // full diamond ~13 pts
+        }
+
+        // source: 'fall' | pid of attacker
+        function takeDamage(amount, source) {
+            if (!running) return;
+            source = source || 'fall';
+            const defense = getTotalDefense();
+            const reduction = Math.min(0.80, defense * 0.08);
+            const finalDmg = Math.max(1, Math.round(amount * (1 - reduction)));
+            health = Math.max(0, health - finalDmg);
+            _lastDamageTime = Date.now();
+            _lastKilledBy = source; // track so respawn knows what kind of death
+            updateHealthBar();
+            const flash = document.createElement('div');
+            flash.style.cssText = 'position:fixed;inset:0;background:rgba(200,0,0,0.28);pointer-events:none;z-index:9999;animation:dmgFade 0.4s ease forwards';
+            document.body.appendChild(flash);
+            setTimeout(() => flash.remove(), 400);
+            if (health <= 0) respawnPlayer(source);
+        }
+
+        function respawnPlayer(source) {
+            const killedByPlayer = source && source !== 'fall';
+
+            if (killedByPlayer) {
+                // ── PvP death: send all inventory + coins to the killer ──
+                const loot = inventory.filter(Boolean);
+                const lootCoins = coins;
+                if ((loot.length > 0 || lootCoins > 0) && currentUser) {
+                    addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
+                        action: 'LOOT_DROP',
+                        killer: source,         // killer's userId
+                        items: loot,
+                        coins: lootCoins,
+                        x: 0, y: 0, z: 0,
+                        author: userId,
+                        timestamp: serverTimestamp()
+                    });
+                }
+                // Clear inventory + coins
+                inventory = new Array(30).fill(null);
+                coins = 0;
+                equippedArmor = { helmet: null, chestplate: null, leggings: null, boots: null };
+                updateHotbarFromInventory();
+                updateCoinDisplay();
+                refreshArmorSlots();
+                updateLocalArmorIcon();
+                showToast('💀 You were killed! Lost all items.', '#e74c3c', '#e74c3c');
+            } else {
+                // ── Fall / environment death: keep inventory ──
+                showToast('💀 You died! Respawned.', '#e67e22', '#e67e22');
+            }
+
+            health = maxHealth;
+            _lastKilledBy = null;
+            updateHealthBar();
+            playerGroup.position.set(0.5, 32, 0.5);
+            for (let y = 31; y > 0; y--) {
+                if (getBlock(0, y, 0) !== 0) { playerGroup.position.y = y + PLAYER_HEIGHT; break; }
+            }
+            vel.set(0, 0, 0);
+            saveGame();
+        }
+
         function animate() {
             if(!running) return;
             requestAnimationFrame(animate);
@@ -3894,7 +4072,21 @@
                     vel.y = 0;
                 }
             } else { onGround = false; }
-            
+
+            // ── Fall damage ──
+            if (onGround && _fallVelPrev < -16) {
+                const dmg = Math.floor((-_fallVelPrev - 16) * 0.6);
+                if (dmg > 0) takeDamage(dmg, 'fall');
+            }
+            _fallVelPrev = vel.y;
+
+            // ── Natural regen: +1 HP every 4s when not recently hit ──
+            if (health < maxHealth && Date.now() - _lastDamageTime > 4000) {
+                health = Math.min(maxHealth, health + 1);
+                _lastDamageTime = Date.now() - 3200;
+                updateHealthBar();
+            }
+
             // Animation Trigger
             if(mixer) { 
                 const moving = Math.hypot(dx, dz) > 0.1;
@@ -4069,9 +4261,9 @@
 
                 // ── Hand sway: bob the hand group with walking rhythm ──
                 if (localHandGroup) {
-                    const hSwayX = 0.52 + Math.sin(_bobPhase * 0.5) * 0.025 * bobAmt;
-                    const hSwayY = -0.52 - Math.abs(Math.sin(_bobPhase)) * 0.030 * bobAmt;
-                    localHandGroup.position.set(hSwayX, hSwayY, -0.85);
+                    const hSwayX = 0.62 + Math.sin(_bobPhase * 0.5) * 0.020 * bobAmt;
+                    const hSwayY = -0.62 - Math.abs(Math.sin(_bobPhase)) * 0.022 * bobAmt;
+                    localHandGroup.position.set(hSwayX, hSwayY, -0.75);
                 }
             } else {
                 // 3rd person: reset bob so switching POV is clean
@@ -4173,6 +4365,9 @@
                 for(let y=31; y>0; y--) if(getBlock(0,y,0) !== 0) { playerGroup.position.y = y+PLAYER_HEIGHT; break; }
             }
             running = true;
+            health = maxHealth;
+            document.getElementById('health-bar-wrap').classList.add('visible');
+            updateHealthBar();
             // ── Auto-save every 30 seconds so position/inventory is never stale ──
             setInterval(() => { if (running && currentUser) saveGame(); }, 30000);
             // ── Activate lights for all torches loaded from the server ──
