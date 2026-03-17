@@ -733,6 +733,7 @@
           <div class="shop-tab active" data-tab="blocks" onclick="switchShopTab('blocks')">⬛ BLOCKS</div>
           <div class="shop-tab" data-tab="tools" onclick="switchShopTab('tools')">⛏ TOOLS</div>
           <div class="shop-tab" data-tab="armor" onclick="switchShopTab('armor')">🛡 ARMOR</div>
+          <div class="shop-tab" data-tab="upgrades" onclick="switchShopTab('upgrades')">♥ HP</div>
           <div class="shop-tab" data-tab="skins" onclick="switchShopTab('skins')">🧍 SKINS</div>
         </div>
         <div id="shop-mode-row">
@@ -897,7 +898,7 @@
         let ownedSkins = ['default']; // Default skin is always owned
         let activeTool = null;
         let equippedArmor = { helmet: null, chestplate: null, leggings: null, boots: null }; // armor slot → ARMOR id or null
-        let health = 20, maxHealth = 20;
+        let health = 6, maxHealth = 6;  // Start with 3 hearts; buy more in shop
         let _lastDamageTime = 0, _fallVelPrev = 0, _lastAttackTime = 0;
         let _lastKilledBy = null; // 'fall' | pid — determines loot drop on death
 
@@ -1601,6 +1602,29 @@
             });
         }
 
+        function initBrokenGrassNetwork() {
+            // Dedicated collection — one doc per broken plant, keyed by "x,y,z"
+            // Much faster than scanning world_changes for BREAK_GRASS events
+            const bgRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'broken_grass');
+            onSnapshot(bgRef, (snapshot) => {
+                let anyNew = false;
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added' || change.type === 'modified') {
+                        const key = change.doc.id; // "x,y,z"
+                        if (!brokenGrassPlants.has(key)) {
+                            brokenGrassPlants.add(key);
+                            anyNew = true;
+                            if (running) {
+                                const [gx,,gz] = key.split(',').map(Number);
+                                refreshChunk(gx, gz);
+                            }
+                        }
+                    }
+                });
+                // If we got the initial batch before running, updateWorld will pick it up
+            });
+        }
+
         function initChestNetwork() {
             const chestsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'chests');
             onSnapshot(chestsRef, (snapshot) => {
@@ -1728,9 +1752,6 @@
                                 updateDoorMesh(Math.floor(d.x), Math.floor(d.y)+1, Math.floor(d.z));
                                 if (running) { refreshChunk(d.x, d.z); }
                             }
-                        } else if (d.action === 'BREAK_GRASS') {
-                            brokenGrassPlants.add(key);
-                            if (running) refreshChunk(d.x, d.z);
                         } else if (d.action === 'HIT') {
                             // Only the targeted player processes this
                             if (d.target === userId && running) {
@@ -1764,7 +1785,7 @@
                                 showToast('💰 Looted ' + victimName + '! +' + droppedCoins + ' coins + ' + droppedItems.filter(Boolean).length + ' items', '#FFD700', '#FFD700');
                             }
                         }
-                        if (running && !['TOGGLE','BREAK_GRASS','HIT','LOOT_DROP'].includes(d.action)) refreshChunk(d.x, d.z);
+                        if (running && !['TOGGLE','HIT','LOOT_DROP'].includes(d.action)) refreshChunk(d.x, d.z);
                     }
                 });
             });
@@ -1839,6 +1860,7 @@
             // to keep all clients in sync without resetting to the same cycle position each time.
             setInterval(syncEpoch, 83 * 1000);
 
+            initBrokenGrassNetwork();
             initChestNetwork();
         }
 
@@ -1861,6 +1883,8 @@
                     armorChest: equippedArmor.chestplate || 0,
                     armorLegs: equippedArmor.leggings || 0,
                     armorBoots: equippedArmor.boots || 0,
+                    health: health,
+                    maxHealth: maxHealth,
                     skin: currentSkin,
                     coins: coins,
                     lastSeen: serverTimestamp()
@@ -1977,11 +2001,20 @@
                 group.add(armorIconSprite);
             }
 
+            // Health label sprite
+            const initHp  = data.health    || 6;
+            const initMax = data.maxHealth || 6;
+            const healthSprite = buildHealthLabel(initHp, initMax);
+            healthSprite.position.y = 0.28;
+            group.add(healthSprite);
+
             scene.add(group);
             const p = { 
                 group, 
                 model, 
                 nameTag,
+                healthSprite,
+                lastHp: initHp, lastMaxHp: initMax,
                 armorIconSprite: armorIconSprite || null,
                 mixer: pMixer, 
                 actions: pActions,
@@ -2004,6 +2037,7 @@
             p.lastSeenTime = Date.now();
             p.data = data;
             updateRemotePlayerHand(pid, data.heldItem || 0);
+            updateRemoteHealthSprite(pid, data.health || 6, data.maxHealth || 6);
             // Rebuild composite armor sprite when any piece changes
             const _ah = data.armorHelmet || 0, _ac = data.armorChest || 0;
             const _al = data.armorLegs || 0,   _ab = data.armorBoots || 0;
@@ -2033,6 +2067,10 @@
         function removeRemotePlayer(pid) {
             if (otherPlayers[pid]) {
                 const p = otherPlayers[pid];
+                if (p.healthSprite) {
+                    if (p.healthSprite.material.map) p.healthSprite.material.map.dispose();
+                    p.healthSprite.material.dispose();
+                }
                 scene.remove(p.group);
                 p.group.traverse(child => {
                     if (child.geometry) child.geometry.dispose();
@@ -2066,7 +2104,7 @@
 
         function broadcastAction(type, data) { 
             if (!currentUser) return;
-            if (type === 'PLACE' || type === 'BREAK' || type === 'TOGGLE' || type === 'BREAK_GRASS' || type === 'HIT' || type === 'LOOT_DROP') {
+            if (type === 'PLACE' || type === 'BREAK' || type === 'TOGGLE' || type === 'HIT' || type === 'LOOT_DROP') {
                 addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'world_changes'), {
                     ...data,
                     author: userId,
@@ -2165,6 +2203,7 @@
                 setDoc(userRef, {
                     inventory: inventory,
                     coins: coins,
+                    maxHealth: maxHealth,
                     currentSkin: currentSkin,
                     ownedSkins: ownedSkins,
                     activeTool: activeTool,
@@ -2196,6 +2235,7 @@
                         ownedSkins = saved.ownedSkins || ['default'];
                         activeTool = saved.activeTool || null;
                         if (saved.equippedArmor) equippedArmor = saved.equippedArmor;
+                        if (saved.maxHealth) { maxHealth = saved.maxHealth; health = maxHealth; }
                         if (saved.px !== undefined) {
                             savedSpawnPos = { x: saved.px, y: saved.py, z: saved.pz, ry: saved.ry || 0 };
                         }
@@ -2762,8 +2802,15 @@
                                 brokenGrassPlants.add(plantKey);
                                 refreshChunk(gx, gz);
                                 playSound('break', 0.7);
-                                // Persist to Firebase so it stays gone on reload/rejoin
-                                broadcastAction('BREAK_GRASS', { x: gx, y: gy, z: gz });
+                                // Persist to dedicated broken_grass collection (keyed by position)
+                                // Using setDoc so duplicates are just overwrites, not extra docs
+                                if (currentUser) {
+                                    setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'broken_grass', plantKey), {
+                                        x: gx, y: gy, z: gz,
+                                        brokenBy: userId,
+                                        timestamp: serverTimestamp()
+                                    });
+                                }
                                 return true;
                             }
                         }
@@ -3309,6 +3356,110 @@
             }
         }
 
+        // Build a ♥ X/Y sprite for above a remote player's head
+        function buildHealthSprite(hp, maxHp) {
+            const hearts = Math.ceil(maxHp / 2);
+            const full   = Math.floor(hp / 2);
+            const half   = hp % 2;
+            // Build compact heart row string: ♥ for full, ♡ for empty
+            let hStr = '';
+            for (let i = 0; i < hearts; i++) {
+                if (i < full) hStr += '♥';
+                else if (i === full && half) hStr += '♡';
+                else hStr += '♡';
+            }
+            const label = `${hStr}  ${hp}/${maxHp}`;
+
+            const cvs = document.createElement('canvas');
+            cvs.width = 256; cvs.height = 48;
+            const ctx = cvs.getContext('2d');
+            ctx.font = 'Bold 22px sans-serif';
+
+            // Background pill
+            const tw = ctx.measureText(label).width;
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.beginPath();
+            ctx.roundRect(128 - tw/2 - 10, 8, tw + 20, 32, 8);
+            ctx.fill();
+
+            // Text — hearts red, numbers white
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // Draw numbers in white
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+            ctx.strokeText(label, 128, 24);
+            // Overlay hearts in red
+            ctx.fillStyle = '#ff3333';
+            ctx.fillText(hStr, 128 - ctx.measureText('  ' + hp + '/' + maxHp).width / 2 - ctx.measureText(hStr).width / 2 + ctx.measureText(hStr + '  ' + hp + '/' + maxHp).width / 2 - ctx.measureText('  ' + hp + '/' + maxHp).width / 2, 24);
+            ctx.fillStyle = '#fff';
+            ctx.fillText('  ' + hp + '/' + maxHp, 128 + ctx.measureText(hStr).width / 2 - ctx.measureText(hStr + '  ' + hp + '/' + maxHp).width / 2 + ctx.measureText('  ' + hp + '/' + maxHp).width / 2, 24);
+
+            const tex = new THREE.CanvasTexture(cvs);
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.LinearFilter;
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(2.2, 0.42, 1);
+            return sprite;
+        }
+
+        // Simpler + cleaner health label
+        function buildHealthLabel(hp, maxHp) {
+            const cvs = document.createElement('canvas');
+            cvs.width = 220; cvs.height = 44;
+            const ctx = cvs.getContext('2d');
+            ctx.font = 'Bold 20px sans-serif';
+
+            const label = '♥ ' + hp + '/' + maxHp;
+            const tw = ctx.measureText(label).width;
+
+            ctx.fillStyle = 'rgba(0,0,0,0.60)';
+            ctx.beginPath();
+            ctx.roundRect(110 - tw/2 - 8, 6, tw + 16, 30, 7);
+            ctx.fill();
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+            ctx.strokeText(label, 110, 21);
+            ctx.fillStyle = '#ff4444';
+            ctx.fillText('♥', 110 - tw/2 + ctx.measureText('♥').width/2, 21);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(' ' + hp + '/' + maxHp, 110 + ctx.measureText('♥').width/2 - tw/2 + ctx.measureText(' ' + hp + '/' + maxHp).width/2, 21);
+
+            const tex = new THREE.CanvasTexture(cvs);
+            tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter;
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(1.8, 0.34, 1);
+            return sprite;
+        }
+
+        function updateRemoteHealthSprite(pid, hp, maxHp) {
+            const p = otherPlayers[pid];
+            if (!p) return;
+            const prevHp  = p.lastHp   || 0;
+            const prevMax = p.lastMaxHp || 0;
+            if (prevHp === hp && prevMax === maxHp) return; // no change
+            p.lastHp   = hp;
+            p.lastMaxHp = maxHp;
+
+            // Dispose old sprite
+            if (p.healthSprite) {
+                p.group.remove(p.healthSprite);
+                if (p.healthSprite.material.map) p.healthSprite.material.map.dispose();
+                p.healthSprite.material.dispose();
+                p.healthSprite = null;
+            }
+            if (!hp || !maxHp) return;
+
+            const s = buildHealthLabel(hp, maxHp);
+            s.position.y = 0.28; // just above name tag (which is at y=0.5 but scale makes it ~0.12 tall)
+            p.group.add(s);
+            p.healthSprite = s;
+        }
+
         function fadeToAction(name, duration) {
             if (!actions[name]) return;
             const previousAction = activeAction;
@@ -3612,6 +3763,45 @@
                     const a = ARMOR[id];
                     createShopItem(grid, a.name, a.price, a, 'armor', () => buyArmor(id), (e) => e.preventDefault());
                 });
+            } else if(tab === 'upgrades') {
+                // Heart upgrades: max 10 hearts (20 HP), starts at 3 hearts (6 HP)
+                // Each extra heart costs exponentially more
+                const maxBuyableHearts = 10;
+                const currentHearts = Math.ceil(maxHealth / 2);
+                for (let h = currentHearts + 1; h <= maxBuyableHearts; h++) {
+                    const heartCost = Math.floor(5000 * Math.pow(2.2, h - 4)); // very expensive
+                    const el = document.createElement('div'); el.className = 'shop-item';
+                    // Draw red heart canvas
+                    const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+                    const ctx2 = c.getContext('2d');
+                    ctx2.font = '26px sans-serif'; ctx2.textAlign = 'center'; ctx2.textBaseline = 'middle';
+                    ctx2.fillText('♥', 16, 18);
+                    el.appendChild(c);
+                    const nameEl = document.createElement('div'); nameEl.className = 'shop-name';
+                    nameEl.innerText = 'Heart ' + h; el.appendChild(nameEl);
+                    const priceEl = document.createElement('div'); priceEl.className = 'shop-price';
+                    priceEl.style.color = '#ff4444'; priceEl.innerText = heartCost; el.appendChild(priceEl);
+                    const _h = h, _cost = heartCost;
+                    el.onclick = () => {
+                        if (coins >= _cost) {
+                            coins -= _cost;
+                            maxHealth = _h * 2;
+                            health = Math.min(health + 2, maxHealth); // gain the new hearts
+                            updateCoinDisplay(); updateHealthBar(); saveGame();
+                            showToast('♥ Max hearts: ' + _h, '#ff4444', '#ff4444');
+                            switchShopTab('upgrades'); // refresh to show next upgrade
+                        } else {
+                            showToast('✘ Need ' + _cost + ' coins', '#e74c3c', '#e74c3c');
+                        }
+                    };
+                    grid.appendChild(el);
+                }
+                if (Math.ceil(maxHealth / 2) >= maxBuyableHearts) {
+                    const msg = document.createElement('div');
+                    msg.style.cssText = 'color:#FFD700;font-size:8px;text-align:center;padding:20px;';
+                    msg.innerText = '♥ MAX HEARTS REACHED!';
+                    grid.appendChild(msg);
+                }
             } else if(tab === 'skins') {
                 Object.keys(SKINS).forEach(id => {
                     const s = SKINS[id];
@@ -3964,7 +4154,8 @@
             if (!wrap) return;
             wrap.innerHTML = '';
             const path = 'M8 14s-6-4.35-6-8a4 4 0 0 1 6-3.46A4 4 0 0 1 14 6c0 3.65-6 8-6 8z';
-            for (let i = 0; i < 10; i++) {
+            const numHearts = Math.ceil(maxHealth / 2);
+            for (let i = 0; i < numHearts; i++) {
                 const hp2 = i * 2;
                 const full = health >= hp2 + 2;
                 const half = !full && health >= hp2 + 1;
