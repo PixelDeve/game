@@ -28,6 +28,39 @@
             z-index: 10; transition: transform 0.12s ease;
         }
 
+        /* ── PE-style break ring: conic-gradient countdown at crosshair ── */
+        #break-progress.pe-mode {
+            border: none;
+            background: conic-gradient(rgba(255,255,255,0.85) var(--mine-pct,0%), transparent var(--mine-pct,0%));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 5px), black calc(100% - 5px));
+            -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), black calc(100% - 5px));
+            width: 52px; height: 52px;
+            transition: none;
+        }
+
+        /* ── Tap ripple: spawned at touch position, always PE ── */
+        .pe-ripple {
+            position: fixed;
+            width: 16px; height: 16px;
+            border: 2.5px solid rgba(255,255,255,0.85);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -50%) scale(1);
+            animation: peRippleOut 0.38s ease-out forwards;
+        }
+        @keyframes peRippleOut {
+            0%   { transform: translate(-50%,-50%) scale(0.4); opacity: 0.9; }
+            60%  { opacity: 0.5; }
+            100% { transform: translate(-50%,-50%) scale(2.8); opacity: 0; }
+        }
+
+        /* Classic mode animate spin when visible */
+        #break-progress.classic-mode {
+            animation: bpSpin 0.7s linear infinite;
+        }
+        @keyframes bpSpin { to { transform: translate(-50%,-50%) scale(1) rotate(360deg); } }
+
         /* ══════════════════════════════
            TOP-LEFT BUTTON GROUP
         ══════════════════════════════ */
@@ -679,11 +712,22 @@
                 <div id="settings-rd-btn" class="menu-btn" style="font-size:7px;padding:9px;">✔ APPLY DISTANCE</div>
             </div>
 
+            <!-- Touch Feedback Style (shown on touch devices) -->
+            <div id="settings-touch-section" style="display:flex;flex-direction:column;gap:8px;">
+                <div style="color:#aaa;font-size:6px;letter-spacing:1px;">TOUCH FEEDBACK</div>
+                <div style="display:flex;gap:6px;">
+                    <div id="tf-classic-btn" class="menu-btn" style="flex:1;font-size:6px;padding:9px;text-align:center;">
+                        + CLASSIC
+                    </div>
+                    <div id="tf-pe-btn" class="menu-btn" style="flex:1;font-size:6px;padding:9px;text-align:center;">
+                        ⭕ PE
+                    </div>
+                </div>
+            </div>
+
             <div id="close-settings-btn" class="menu-btn" style="font-size:7px;padding:9px;margin-top:2px;">← BACK</div>
         </div>
     </div>
-
-    <div id="inventory-overlay">
         <div style="color: white; margin-bottom: 6px; font-size: 10px;">INVENTORY</div>
         <!-- Armor equip slots -->
         <div id="armor-panel">
@@ -1063,6 +1107,8 @@
         let selectionBox;
         const keys = {}, joy = { x: 0, y: 0, id: null, sx: 0, sy: 0 };
         const touchState = { id: null, lx: 0, ly: 0, sx: 0, sy: 0, timer: null, moved: false, startTime: 0 };
+        let touchFeedbackMode = localStorage.getItem('touchFeedbackMode') || 'pe'; // 'classic' | 'pe'
+        let _mineStartTime = 0, _mineDuration = 0;
 
         let isFlying = false, lastJumpTime = 0, isTouchingDown = false, isTouchingUp = false, povMode = 0, povDist = 4;
         let mixer, actions = {}, activeAction;
@@ -3513,6 +3559,71 @@
             }
         }
 
+        // ════════════════════════════════════
+        //  TOUCH FEEDBACK SYSTEM
+        // ════════════════════════════════════
+        function applyTouchFeedbackMode(mode) {
+            touchFeedbackMode = mode;
+            localStorage.setItem('touchFeedbackMode', mode);
+            const bp = document.getElementById('break-progress');
+            bp.classList.remove('classic-mode', 'pe-mode');
+            // Update settings buttons
+            const cb = document.getElementById('tf-classic-btn');
+            const pb = document.getElementById('tf-pe-btn');
+            if (cb && pb) {
+                if (mode === 'classic') {
+                    cb.style.borderColor = 'rgba(255,255,255,0.7)'; cb.style.color = '#fff';
+                    pb.style.borderColor = ''; pb.style.color = '';
+                } else {
+                    pb.style.borderColor = 'rgba(255,255,255,0.7)'; pb.style.color = '#fff';
+                    cb.style.borderColor = ''; cb.style.color = '';
+                }
+            }
+        }
+
+        function showBreakIndicator() {
+            const bp = document.getElementById('break-progress');
+            if (touchFeedbackMode === 'pe') {
+                bp.classList.remove('classic-mode'); bp.classList.add('pe-mode');
+                bp.style.setProperty('--mine-pct', '0%');
+                bp.style.transform = 'translate(-50%,-50%) scale(1)';
+                _mineStartTime = Date.now();
+                _mineDuration = currentMineDelay;
+            } else {
+                bp.classList.remove('pe-mode'); bp.classList.add('classic-mode');
+                bp.style.transform = 'translate(-50%,-50%) scale(1)';
+            }
+        }
+
+        function hideBreakIndicator() {
+            const bp = document.getElementById('break-progress');
+            bp.classList.remove('classic-mode', 'pe-mode');
+            bp.style.transform = 'translate(-50%,-50%) scale(0)';
+            bp.style.setProperty('--mine-pct', '0%');
+            _mineStartTime = 0;
+        }
+
+        function updateBreakIndicatorPE() {
+            if (touchFeedbackMode !== 'pe' || !_mineStartTime) return;
+            const bp = document.getElementById('break-progress');
+            if (!bp.classList.contains('pe-mode')) return;
+            const elapsed = Date.now() - _mineStartTime;
+            const pct = Math.min(100, (elapsed / _mineDuration) * 100);
+            bp.style.setProperty('--mine-pct', pct.toFixed(1) + '%');
+            // Reset cycle each interval
+            if (elapsed >= _mineDuration) _mineStartTime = Date.now();
+        }
+
+        function spawnTapRipple(clientX, clientY) {
+            if (touchFeedbackMode !== 'pe') return;
+            const el = document.createElement('div');
+            el.className = 'pe-ripple';
+            el.style.left = clientX + 'px';
+            el.style.top  = clientY + 'px';
+            document.body.appendChild(el);
+            el.addEventListener('animationend', () => el.remove());
+        }
+
         function setupInput() {
             document.getElementById('inv-btn').onclick = (e) => { e.stopPropagation(); toggleInventory(); };
             document.getElementById('close-inv').onclick = () => toggleInventory();
@@ -3588,6 +3699,20 @@
                 showToast('✔ Render distance: ' + newDist, '#4af', '#4af');
             };
 
+            // Touch feedback toggle
+            document.getElementById('tf-classic-btn').onclick = () => {
+                applyTouchFeedbackMode('classic');
+                showToast('Touch: Classic (+)', '#fff', '#888');
+            };
+            document.getElementById('tf-pe-btn').onclick = () => {
+                applyTouchFeedbackMode('pe');
+                showToast('Touch: PE Circle ⭕', '#fff', '#888');
+            };
+            // Only show on touch devices
+            if (!isTouch) document.getElementById('settings-touch-section').style.display = 'none';
+            // Apply saved mode
+            applyTouchFeedbackMode(touchFeedbackMode);
+
             if(isTouch) {
                 const zone = document.getElementById('joy-zone'), nub = document.getElementById('joy-nub');
                 document.addEventListener('touchstart', e => {
@@ -3604,7 +3729,7 @@
                             touchState.startTime = Date.now(); touchState.moved = false;
                             touchState.timer = setTimeout(() => { 
                                 if(!touchState.moved) { 
-                                    document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
+                                    showBreakIndicator();
                                     touchState.timer = setInterval(() => interact(false), currentMineDelay); 
                                 } 
                             }, 200);
@@ -3622,7 +3747,7 @@
                             if(Math.hypot(t.clientX - touchState.sx, t.clientY - touchState.sy) > MOVE_THRESHOLD) {
                                 touchState.moved = true; 
                                 if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
-                                document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)';
+                                hideBreakIndicator();
                             }
                             playerGroup.rotation.y -= (t.clientX - touchState.lx) * 0.008;
                             cameraPivot.rotation.x = Math.max(-1.5, Math.min(1.5, cameraPivot.rotation.x - (t.clientY - touchState.ly) * 0.008));
@@ -3637,9 +3762,12 @@
                         else if(t.target.closest('#up-btn')) { isTouchingUp = false; }
                         else if(t.target.closest('#down-btn')) { isTouchingDown = false; }
                         else if(t.identifier === touchState.id) { 
-                            if(!touchState.moved && (Date.now() - touchState.startTime) < 300) interact(true); 
+                            if(!touchState.moved && (Date.now() - touchState.startTime) < 300) {
+                                spawnTapRipple(t.clientX, t.clientY);
+                                interact(true);
+                            }
                             if(touchState.timer) { clearTimeout(touchState.timer); clearInterval(touchState.timer); touchState.timer = null; }
-                            document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)';
+                            hideBreakIndicator();
                             touchState.id = null;
                             mineTargetKey = null; mineHits = 0;
                         }
@@ -3665,7 +3793,7 @@
                 window.onmousedown = e => { 
                     if(!running || paused || document.activeElement.tagName === 'INPUT') return; 
                     if(e.button === 0) { 
-                        document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(1)'; 
+                        showBreakIndicator();
                         if(touchState.timer) clearInterval(touchState.timer);
                         touchState.timer = setInterval(() => interact(false), currentMineDelay); 
                     } else if(e.button === 2) {
@@ -3675,7 +3803,7 @@
                 window.onmouseup = e => { 
                     if(touchState.timer) { clearInterval(touchState.timer); touchState.timer = null; }
                     mineTargetKey = null; mineHits = 0;
-                    document.getElementById('break-progress').style.transform = 'translate(-50%,-50%) scale(0)'; 
+                    hideBreakIndicator();
                 };
                 window.oncontextmenu = e => e.preventDefault();
                 window.onmousemove = e => { 
@@ -4252,6 +4380,7 @@
             if(paused || document.getElementById('inventory-overlay').style.display === 'flex' || document.getElementById('shop-overlay').style.display === 'flex' || document.getElementById('chat-container').style.display === 'flex' || document.getElementById('chest-overlay').style.display === 'flex') { renderer.render(scene, camera); return; }
             const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
             if(mixer) mixer.update(dt);
+            updateBreakIndicatorPE();
             if(isFlying) { let flyVel = 0; if (keys[' '] || isTouchingUp) flyVel += 1; if (keys['shift'] || isTouchingDown) flyVel -= 1; vel.y = flyVel * 10; } else { vel.y -= 24 * dt; }
             const r = playerGroup.rotation.y, speed = isFlying ? 12 : 5.5; 
             let mx=0, mz=0; if(isTouch) { mx=joy.x; mz=joy.y; } else { if(keys.w)mz=-1; if(keys.s)mz=1; if(keys.a)mx=-1; if(keys.d)mx=1; }
