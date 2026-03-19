@@ -579,7 +579,105 @@
         .join-step.done .join-step-icon::after { content: '✓'; }
         .join-step.active .join-step-icon { animation: stepSpin 0.8s linear infinite; border-top-color: transparent; }
         @keyframes stepSpin { to { transform: rotate(360deg); } }
-    </style>
+
+        /* ═══ MARKETPLACE ═══ */
+        #market-overlay{position:fixed;inset:0;background:rgba(0,0,0,.86);backdrop-filter:blur(10px);display:none;align-items:flex-start;justify-content:center;z-index:2200;pointer-events:auto;padding:10px;overflow-y:auto}
+        #market-overlay.open{display:flex}
+        #market-card{background:rgba(12,12,22,.97);border:1.5px solid rgba(218,165,32,.28);border-radius:14px;width:min(480px,97vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.7)}
+        #mkt-head{padding:13px 16px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,rgba(218,165,32,.12),transparent);border-bottom:1px solid rgba(218,165,32,.2)}
+        #mkt-tabs{display:flex;padding:8px 12px 0;gap:2px;border-bottom:1px solid rgba(255,255,255,.07)}
+        .mtab{font-size:6px;padding:6px 12px;cursor:pointer;color:#445;background:transparent;border:1px solid transparent;border-bottom:none;border-radius:5px 5px 0 0;letter-spacing:1px;font-family:'Press Start 2P';position:relative;top:1px;transition:color .15s}
+        .mtab.active{color:#FFD700;background:rgba(12,12,22,.95);border-color:rgba(218,165,32,.25);border-bottom-color:rgba(12,12,22,.95)}
+        #mkt-body{flex:1;overflow-y:auto;padding:12px;scrollbar-width:thin;min-height:80px}
+        .ml{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:9px;margin-bottom:6px}
+        .ml canvas{border-radius:4px;flex-shrink:0;image-rendering:pixelated}
+        .ml-i{flex:1;min-width:0}
+        .ml-n{font-size:7px;color:#ddd;margin-bottom:3px}
+        .ml-s{font-size:5.5px;color:#445}
+        .ml-p{font-size:9px;color:#FFD700;flex-shrink:0}
+        .mb{padding:6px 11px;border-radius:6px;font-size:6px;cursor:pointer;font-family:'Press Start 2P';border:1px solid;transition:background .15s;white-space:nowrap}
+        .mb-buy{background:rgba(46,204,113,.17);border-color:rgba(46,204,113,.4);color:#2ecc71}
+        .mb-buy:hover{background:rgba(46,204,113,.36)}
+        .mb-del{background:rgba(231,76,60,.11);border-color:rgba(231,76,60,.3);color:#e74c3c}
+        .mb-del:hover{background:rgba(231,76,60,.28)}
+        .mf{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.09);border-radius:9px;padding:12px;margin-bottom:10px}
+        .mf-t{font-size:6.5px;color:#FFD700;margin-bottom:8px}
+        .mi-g{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-bottom:8px;max-height:108px;overflow-y:auto}
+        .mi-s{width:36px;height:36px;background:rgba(255,255,255,.05);border:1.5px solid rgba(255,255,255,.11);border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative}
+        .mi-s.sel{border-color:#FFD700;background:rgba(218,165,32,.13)}
+        .mi-s canvas{width:22px;height:22px;image-rendering:pixelated}
+        .mi-s .slot-count{position:absolute;bottom:1px;right:2px;font-size:6px;color:#fff;text-shadow:1px 1px 2px #000}
+        .mr{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px}
+        .mn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.17);border-radius:6px;color:#fff;padding:7px 9px;font-family:'Press Start 2P';font-size:7px;width:72px}
+        .mn:focus{outline:none;border-color:rgba(218,165,32,.6)}
+        .mlb{padding:8px 14px;background:rgba(218,165,32,.21);border:1px solid rgba(218,165,32,.5);border-radius:6px;color:#FFD700;font-size:6px;cursor:pointer;font-family:'Press Start 2P'}
+        .me{color:#333;font-size:7px;text-align:center;padding:28px 0}
+
+        /* ═══ QUESTS ═══ */
+        #quest-panel{position:fixed;top:58px;right:-285px;width:268px;background:rgba(10,14,10,.97);backdrop-filter:blur(12px);border-left:1.5px solid rgba(255,215,0,.17);display:flex;flex-direction:column;z-index:2300;pointer-events:auto;transition:right .24s cubic-bezier(.4,0,.2,1);max-height:calc(100vh - 58px);overflow-y:auto;box-shadow:-8px 0 32px rgba(0,0,0,.5)}
+        #quest-panel.open{right:0}
+        .qp-h{font-size:8px;color:#FFD700;padding:12px 13px 5px;text-align:center;letter-spacing:3px;border-bottom:1px solid rgba(255,215,0,.1)}
+        .qp-s{font-size:5.5px;color:#445;text-align:center;padding:5px 0 7px;border-bottom:1px solid rgba(255,255,255,.05)}
+        .q-i{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:10px;margin:4px 8px}
+        .q-i.ok{border-color:rgba(255,215,0,.27)}
+        .q-i.done{opacity:.5}
+        .q-d{font-size:6px;color:#bbb;margin-bottom:6px;line-height:1.7}
+        .q-b{height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-bottom:5px}
+        .q-f{height:100%;background:linear-gradient(90deg,#f80,#FFD700);border-radius:3px;transition:width .3s}
+        .q-f.full{background:linear-gradient(90deg,#2ecc71,#27ae60)}
+        .q-m{display:flex;justify-content:space-between;align-items:center}
+        .q-pt{font-size:5.5px;color:#555}
+        .q-rw{font-size:6px;color:#FFD700}
+        .q-cl{padding:5px 9px;background:rgba(218,165,32,.21);border:1px solid rgba(218,165,32,.5);border-radius:5px;color:#FFD700;font-size:5.5px;cursor:pointer;font-family:'Press Start 2P'}
+        #quest-close{margin:8px 10px 12px;font-size:7px;color:#445;padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;cursor:pointer;text-align:center;font-family:'Press Start 2P'}
+        #quest-close:hover{color:#FFD700}
+
+        /* ═══ LEADERBOARD ═══ */
+        #lb-panel{position:fixed;top:58px;left:-252px;width:236px;background:rgba(8,10,20,.97);backdrop-filter:blur(12px);border-right:1.5px solid rgba(74,170,255,.17);display:flex;flex-direction:column;z-index:2300;pointer-events:auto;transition:left .24s cubic-bezier(.4,0,.2,1);max-height:calc(100vh - 58px);overflow-y:auto;box-shadow:8px 0 32px rgba(0,0,0,.5)}
+        #lb-panel.open{left:0}
+        .lb-h{font-size:8px;color:#4af;padding:12px 13px 5px;text-align:center;letter-spacing:3px;border-bottom:1px solid rgba(74,170,255,.1)}
+        #lb-tabs{display:flex;gap:2px;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05)}
+        .lb-t{font-size:6px;padding:5px 9px;cursor:pointer;color:#445;background:transparent;border:1px solid transparent;border-radius:5px;font-family:'Press Start 2P';transition:all .15s}
+        .lb-t.active{color:#4af;border-color:rgba(74,170,255,.3);background:rgba(74,170,255,.07)}
+        #lb-rows{flex:1;padding:7px;display:flex;flex-direction:column;gap:4px}
+        .lb-r{display:flex;align-items:center;gap:8px;padding:7px 9px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px}
+        .lb-r.me{border-color:rgba(74,170,255,.3);background:rgba(74,170,255,.06)}
+        .lb-rk{font-size:8px;color:#333;min-width:18px;text-align:center}
+        .lb-rk.g{color:#FFD700;text-shadow:0 0 8px #FFD700}.lb-rk.s{color:#bbb}.lb-rk.b{color:#cd7f32}
+        .lb-ri{flex:1;overflow:hidden}
+        .lb-rn{font-size:6px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .lb-rs{font-size:5px;color:#334;margin-top:2px}
+        .lb-rv{font-size:7px;color:#FFD700;flex-shrink:0}
+        #lb-close{margin:8px 10px 12px;font-size:7px;color:#445;padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;cursor:pointer;text-align:center;font-family:'Press Start 2P'}
+        #lb-close:hover{color:#4af}
+
+        /* ═══ PLAYER TRADE ═══ */
+        #trade-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:3200;pointer-events:auto}
+        #trade-overlay.open{display:flex}
+        #trade-card{background:rgba(10,14,10,.98);border:1.5px solid rgba(46,204,113,.3);border-radius:14px;width:min(340px,94vw);padding:18px;display:flex;flex-direction:column;gap:11px;box-shadow:0 20px 60px rgba(0,0,0,.7)}
+        .tr-h{font-size:9px;color:#2ecc71;text-align:center;letter-spacing:2px}
+        .tr-s{font-size:6px;color:#556;text-align:center}
+        #trade-inv-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;max-height:120px;overflow-y:auto}
+        .tr-sl{width:36px;height:36px;background:rgba(255,255,255,.05);border:1.5px solid rgba(255,255,255,.1);border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative}
+        .tr-sl.sel{border-color:#2ecc71;background:rgba(46,204,113,.13)}
+        .tr-sl canvas{width:22px;height:22px;image-rendering:pixelated}
+        .tr-sl .slot-count{position:absolute;bottom:1px;right:2px;font-size:6px;color:#fff;text-shadow:1px 1px 2px #000}
+        .tr-row{display:flex;align-items:center;gap:8px}
+        .tr-l{font-size:6px;color:#667}
+        .tr-n{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:6px;color:#fff;padding:7px 9px;font-family:'Press Start 2P';font-size:7px;width:68px}
+        .tr-n:focus{outline:none;border-color:rgba(46,204,113,.6)}
+        .tr-b{display:flex;gap:8px}
+        .tr-yes{flex:1;padding:10px;background:rgba(46,204,113,.21);border:1px solid rgba(46,204,113,.5);border-radius:8px;color:#2ecc71;font-size:7px;cursor:pointer;font-family:'Press Start 2P'}
+        .tr-yes:hover{background:rgba(46,204,113,.4)}
+        .tr-no{flex:1;padding:10px;background:rgba(231,76,60,.11);border:1px solid rgba(231,76,60,.28);border-radius:8px;color:#e74c3c;font-size:7px;cursor:pointer;font-family:'Press Start 2P'}
+        .tr-no:hover{background:rgba(231,76,60,.28)}
+        #trade-incoming{position:fixed;bottom:82px;left:50%;transform:translateX(-50%);background:rgba(8,18,8,.97);border:1.5px solid rgba(46,204,113,.4);border-radius:12px;padding:13px 16px;z-index:3100;display:none;flex-direction:column;gap:7px;pointer-events:auto;min-width:240px}
+        #trade-incoming.show{display:flex}
+        .ti-h{font-size:7px;color:#2ecc71;letter-spacing:1px}
+        .ti-d{font-size:6px;color:#aaa}
+        .ti-b{display:flex;gap:6px}
+        .ti-y{flex:1;padding:7px;background:rgba(46,204,113,.21);border:1px solid rgba(46,204,113,.5);border-radius:6px;color:#2ecc71;font-size:6px;cursor:pointer;font-family:'Press Start 2P';text-align:center}
+        .ti-n{flex:1;padding:7px;background:rgba(231,76,60,.11);border:1px solid rgba(231,76,60,.28);border-radius:6px;color:#e74c3c;font-size:6px;cursor:pointer;font-family:'Press Start 2P';text-align:center}</style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
@@ -620,6 +718,8 @@
             <div id="pause-btn" class="hud-btn"><span class="hud-icon">⏸</span></div>
             <div id="chat-toggle-btn" class="hud-btn"><span class="hud-icon">💬</span></div>
             <div id="shop-btn" class="hud-btn"><span class="hud-icon">🏪</span> SHOP</div>
+            <div id="market-btn" class="hud-btn" style="background:rgba(218,165,32,.2);border-color:rgba(218,165,32,.45);color:#FFD700;"><span class="hud-icon">🛒</span> MARKET</div>
+            <div id="quest-btn" class="hud-btn" style="background:rgba(255,165,0,.17);border-color:rgba(255,165,0,.45);color:#f80;"><span class="hud-icon">📜</span> QUESTS</div>
         </div>
 
         <!-- Right HUD group: view + social -->
@@ -627,6 +727,7 @@
             <div id="cam-btn" class="hud-btn"><span class="hud-icon">📷</span></div>
             <div id="fs-btn" class="hud-btn"><span class="hud-icon">⛶</span></div>
             <div id="players-btn" class="hud-btn"><span class="hud-icon">👥</span> WHO</div>
+            <div id="lb-btn" class="hud-btn" style="background:rgba(74,170,255,.13);border-color:rgba(74,170,255,.4);color:#4af;"><span class="hud-icon">🏆</span> BOARD</div>
         </div>
 
 
@@ -802,10 +903,73 @@
         <button id="close-chest" class="menu-btn" style="margin-top: 14px; width: 160px;">CLOSE</button>
     </div>
 
-    <script type="module">
+    <!-- MARKETPLACE -->
+    <div id="market-overlay">
+      <div id="market-card">
+        <div id="mkt-head">
+          <span style="font-size:10px;color:#FFD700;letter-spacing:2px;">🛒 MARKETPLACE</span>
+          <span style="font-size:7px;color:#FFD700;background:rgba(0,0,0,.5);border:1px solid rgba(218,165,32,.3);border-radius:20px;padding:5px 12px;">💰<span id="mkt-coins">0</span></span>
+        </div>
+        <div id="mkt-tabs">
+          <div class="mtab active" onclick="switchMktTab('browse')">BROWSE</div>
+          <div class="mtab" onclick="switchMktTab('sell')">LIST ITEM</div>
+          <div class="mtab" onclick="switchMktTab('mine')">MY LISTINGS</div>
+        </div>
+        <div id="mkt-body"></div>
+        <div style="padding:0 12px 12px;text-align:center;"><div onclick="toggleMarket()" style="display:inline-block;font-size:7px;color:#555;padding:8px 24px;border:1px solid rgba(255,255,255,.1);border-radius:7px;cursor:pointer;font-family:'Press Start 2P';">✕ CLOSE</div></div>
+      </div>
+    </div>
+
+    <!-- QUEST PANEL -->
+    <div id="quest-panel">
+      <div class="qp-h">📜 DAILY QUESTS</div>
+      <div class="qp-s">RESETS IN <span id="quest-timer">--:--:--</span></div>
+      <div id="quest-list"></div>
+      <div id="quest-close">✕ CLOSE</div>
+    </div>
+
+    <!-- LEADERBOARD PANEL -->
+    <div id="lb-panel">
+      <div class="lb-h">🏆 LEADERBOARD</div>
+      <div id="lb-tabs">
+        <div class="lb-t active" onclick="switchLBTab('coins')">COINS</div>
+        <div class="lb-t" onclick="switchLBTab('built')">BUILDERS</div>
+        <div class="lb-t" onclick="switchLBTab('kills')">PVP</div>
+      </div>
+      <div id="lb-rows"></div>
+      <div id="lb-close">✕ CLOSE</div>
+    </div>
+
+    <!-- TRADE SEND -->
+    <div id="trade-overlay">
+      <div id="trade-card">
+        <div class="tr-h">⇄ TRADE OFFER</div>
+        <div class="tr-s">To: <span id="trade-target-name">...</span></div>
+        <div style="font-size:6px;color:#556;">SELECT ITEM TO OFFER</div>
+        <div id="trade-inv-grid"></div>
+        <div class="tr-row">
+          <div class="tr-l">QTY:</div><input type="number" id="trade-qty" class="tr-n" value="1" min="1" max="64">
+          <div class="tr-l">+COINS:</div><input type="number" id="trade-coins-amt" class="tr-n" value="0" min="0">
+        </div>
+        <div class="tr-b">
+          <div class="tr-yes" id="trade-send-btn">✓ SEND</div>
+          <div class="tr-no" id="trade-cancel-btn">✕ CANCEL</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INCOMING TRADE -->
+    <div id="trade-incoming">
+      <div class="ti-h">⇄ TRADE OFFER!</div>
+      <div class="ti-d" id="trade-inc-desc"></div>
+      <div class="ti-b">
+        <div class="ti-y" id="trade-accept-btn">✓ ACCEPT</div>
+        <div class="ti-n" id="trade-decline-btn">✕ DECLINE</div>
+      </div>
+    </div>
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, setDoc, doc, serverTimestamp, deleteDoc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBgQaeWlxecgunDZo8xHBorRVIrZ8K4YJ8",
@@ -944,6 +1108,11 @@
         let ownedSkins = ['default']; // Default skin is always owned
         let activeTool = null;
         let equippedArmor = { helmet: null, chestplate: null, leggings: null, boots: null }; // armor slot → ARMOR id or null
+        let statBlocksPlaced = 0, statBlocksBroken = 0, statKills = 0;
+        let questState = {};
+        let _lbTab = 'coins', _lbData = [];
+        let _mktListings = [], _mktSelectedSlot = -1, _mktTab = 'browse';
+        let _tradeTargetPid = '', _tradeTargetName = '', _tradeSelectedSlot = -1, _tradePendingId = null;
         let health = 6, maxHealth = 6;  // Start with 3 hearts; buy more in shop
         let _lastDamageTime = 0, _fallVelPrev = 0, _lastAttackTime = 0;
         let _lastKilledBy = null; // 'fall' | pid — determines loot drop on death
@@ -1311,6 +1480,7 @@
 
                 const entry = document.createElement('div');
                 entry.className = 'player-entry';
+                entry.dataset.pid = pid;
                 const dot = document.createElement('div');
                 dot.className = 'player-dot';
                 dot.style.background = getPlayerColor(pid);
@@ -2237,6 +2407,8 @@
         }
 
         function hash(x, z) { let h = (x * 374761393) ^ (z * 668265263); h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
+        function hash3(x,y,z){let h=(x*374761393)^(y*1274126177)^(z*668265263);h=(h^(h>>>13))*1274126177;return(h^(h>>>16))>>>0;}
+        function caveNoise(x,y,z){const SH=10,SV=5,ix=Math.floor(x/SH),iy=Math.floor(y/SV),iz=Math.floor(z/SH),fx=(x/SH)-ix,fy=(y/SV)-iy,fz=(z/SH)-iz,ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy),uz=fz*fz*(3-2*fz),n=(a,b,c)=>(hash3(a,b,c)%10000)/10000,l=(a,b,t)=>a+t*(b-a);return l(l(l(n(ix,iy,iz),n(ix+1,iy,iz),ux),l(n(ix,iy+1,iz),n(ix+1,iy+1,iz),ux),uy),l(l(n(ix,iy,iz+1),n(ix+1,iy,iz+1),ux),l(n(ix,iy+1,iz+1),n(ix+1,iy+1,iz+1),ux),uy),uz);}
 
         function saveGame() {
             localStorage.setItem('voxel_prefs_client', JSON.stringify({ povMode }));
@@ -2494,6 +2666,7 @@
                 if (rand < 60) return 13; 
                 if (rand < 150) return 12; 
             }
+            if (y >= 2 && y < h - 4 && caveNoise(Math.floor(x), y, Math.floor(z)) > 0.78) return 0;
 
             return (y > h - 3) ? 2 : 3;
         }
@@ -2591,7 +2764,7 @@
                         ];
                         faces.forEach((f, fi) => {
                             const nType = getBlock(wx+f.n[0], y+f.n[1], wz+f.n[2]);
-                            if (!isTorch && !isDoor) if(nType !== 0 && (!BLOCKS[nType].transparent || nType === type)) return;
+                            if (!isTorch && !isDoor) if(nType !== 0 && BLOCKS[nType] && (!BLOCKS[nType].transparent || nType === type)) return;
                             const base = isTransp ? tCount : sCount;
                             for(let i=0; i<4; i++) {
                                 let vx = f.v[i*3], vy = f.v[i*3+1], vz = f.v[i*3+2];
@@ -2957,6 +3130,7 @@
                     refreshChunk(pbx, pbz);
                     broadcastAction('PLACE', { x: pbx, y: pby, z: pbz, id });
                     playSound('place', 0.85);
+                    statBlocksPlaced++; pushStats(); checkQuestProgress();
                 } else {
                     const type = getBlock(bx, by, bz);
                     // Prevent breaking red wool markers if active claim
@@ -3043,6 +3217,7 @@
                     refreshChunk(bx, bz);
                     broadcastAction('BREAK', { x: bx, y: by, z: bz, prevId: type });
                     playSound('break', 0.9);
+                    statBlocksBroken++; pushStats(); checkQuestProgress();
                 }
                 saveGame();
                 return true;
@@ -3626,6 +3801,324 @@
             el.addEventListener('animationend', () => el.remove());
         }
 
+        // ═══════════════════════════════════════════
+        //  STATS PUSH
+        // ═══════════════════════════════════════════
+        let _pushTimer = null;
+        function pushStats() {
+            if (!currentUser) return;
+            clearTimeout(_pushTimer);
+            _pushTimer = setTimeout(() => {
+                setDoc(doc(db,'artifacts',APP_ID,'public','data','user_stats',userId),{
+                    name:userDisplayName, coins, blocksPlaced:statBlocksPlaced,
+                    blocksBroken:statBlocksBroken, kills:statKills, lastSeen:serverTimestamp()
+                },{merge:true});
+            }, 3000);
+        }
+
+        // ═══════════════════════════════════════════
+        //  QUESTS
+        // ═══════════════════════════════════════════
+        const QUEST_DEFS = [
+            {id:'place50',  desc:'Place 50 blocks',   type:'place', goal:50,  reward:200},
+            {id:'break30',  desc:'Break 30 blocks',   type:'break', goal:30,  reward:150},
+            {id:'place200', desc:'Place 200 blocks',  type:'place', goal:200, reward:600},
+            {id:'break100', desc:'Break 100 blocks',  type:'break', goal:100, reward:400},
+            {id:'kill1',    desc:'Win 1 PvP fight',   type:'kill',  goal:1,   reward:300},
+            {id:'earn500',  desc:'Earn 500 coins',    type:'earn',  goal:500, reward:250},
+        ];
+        function getTodayQuests() {
+            const d=new Date(); let s=d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();
+            const arr=[...QUEST_DEFS];
+            for(let i=arr.length-1;i>0;i--){s=(s*1664525+1013904223)&0xFFFFFFFF;const j=Math.abs(s)%(i+1);[arr[i],arr[j]]=[arr[j],arr[i]];}
+            return arr.slice(0,3);
+        }
+        function checkQuestProgress() {
+            const quests=getTodayQuests();
+            quests.forEach(q=>{
+                if(!questState[q.id]) questState[q.id]={progress:0,claimed:false};
+                if(questState[q.id].claimed) return;
+                const prev=questState[q.id].progress;
+                if(q.type==='place') questState[q.id].progress=Math.min(q.goal,statBlocksPlaced);
+                if(q.type==='break') questState[q.id].progress=Math.min(q.goal,statBlocksBroken);
+                if(q.type==='kill')  questState[q.id].progress=Math.min(q.goal,statKills);
+                if(q.type==='earn')  questState[q.id].progress=Math.min(q.goal,coins);
+                if(prev<q.goal && questState[q.id].progress>=q.goal)
+                    showToast('📜 Quest done: '+q.desc+'! Claim reward.','#FFD700','#FFD700');
+            });
+            renderQuestPanel();
+            if(currentUser) setDoc(doc(db,'artifacts',APP_ID,'public','data','user_stats',userId),
+                {questState, questDate:new Date().toISOString().slice(0,10)},{merge:true});
+        }
+        function renderQuestPanel() {
+            const list=document.getElementById('quest-list'); if(!list) return;
+            const quests=getTodayQuests(); list.innerHTML='';
+            quests.forEach(q=>{
+                const st=questState[q.id]||{progress:0,claimed:false};
+                const pct=Math.min(100,Math.round((st.progress/q.goal)*100));
+                const done=st.progress>=q.goal;
+                const div=document.createElement('div');
+                div.className='q-i'+(done&&!st.claimed?' ok':'')+(st.claimed?' done':'');
+                div.innerHTML=`<div class="q-d">${q.desc}</div>
+                  <div class="q-b"><div class="q-f${done?' full':''}" style="width:${pct}%"></div></div>
+                  <div class="q-m">
+                    <span class="q-pt">${st.progress}/${q.goal}</span>
+                    <span class="q-rw">+${q.reward}🪙</span>
+                    ${done&&!st.claimed?`<div class="q-cl" id="qcl-${q.id}">CLAIM</div>`:''}
+                    ${st.claimed?`<span style="font-size:5.5px;color:#2ecc71;">✓ DONE</span>`:''}
+                  </div>`;
+                if(done&&!st.claimed) div.querySelector(`#qcl-${q.id}`).onclick=()=>{
+                    coins+=q.reward; questState[q.id].claimed=true;
+                    updateCoinDisplay(); checkQuestProgress(); pushStats();
+                    showToast('💰 +'+q.reward+' coins!','#FFD700','#FFD700');
+                };
+                list.appendChild(div);
+            });
+        }
+        function updateQuestTimer() {
+            const now=new Date(),midnight=new Date(now); midnight.setHours(24,0,0,0);
+            const s=Math.floor((midnight-now)/1000);
+            const el=document.getElementById('quest-timer');
+            if(el) el.textContent=String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+        }
+        function toggleQuestPanel() {
+            const p=document.getElementById('quest-panel');
+            if(p.classList.toggle('open')) renderQuestPanel();
+        }
+
+        // ═══════════════════════════════════════════
+        //  LEADERBOARD
+        // ═══════════════════════════════════════════
+        async function loadLeaderboard(tab) {
+            _lbTab=tab;
+            document.querySelectorAll('.lb-t').forEach(t=>t.classList.remove('active'));
+            document.querySelectorAll('.lb-t').forEach(t=>{
+                if((tab==='coins'&&t.textContent==='COINS')||(tab==='built'&&t.textContent==='BUILDERS')||(tab==='kills'&&t.textContent==='PVP')) t.classList.add('active');
+            });
+            const rows=document.getElementById('lb-rows'); if(!rows) return;
+            rows.innerHTML='<div style="color:#333;font-size:6px;text-align:center;padding:20px">LOADING...</div>';
+            try {
+                const field=tab==='coins'?'coins':tab==='built'?'blocksPlaced':'kills';
+                const q=query(collection(db,'artifacts',APP_ID,'public','data','user_stats'),orderBy(field,'desc'),limit(15));
+                const snap=await getDocs(q); _lbData=[];
+                snap.forEach(d=>_lbData.push({id:d.id,...d.data()}));
+            } catch(e){ _lbData=[]; }
+            rows.innerHTML='';
+            if(!_lbData.length){rows.innerHTML='<div style="color:#333;font-size:6px;text-align:center;padding:20px">NO DATA YET</div>';return;}
+            const field=tab==='coins'?'coins':tab==='built'?'blocksPlaced':'kills';
+            _lbData.forEach((p,i)=>{
+                const div=document.createElement('div'); div.className='lb-r'+(p.id===userId?' me':'');
+                const rk=i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1;
+                const rkc=i===0?'g':i===1?'s':i===2?'b':'';
+                const sub=tab==='coins'?`${p.blocksPlaced||0} placed`:tab==='built'?`${p.blocksBroken||0} broken`:`${p.coins||0} coins`;
+                div.innerHTML=`<div class="lb-rk ${rkc}">${rk}</div>
+                  <div class="lb-ri"><div class="lb-rn">${(p.name||p.id||'?').substr(0,14)}</div><div class="lb-rs">${sub}</div></div>
+                  <div class="lb-rv">${p[field]||0}</div>`;
+                rows.appendChild(div);
+            });
+        }
+        window.switchLBTab=(tab)=>{ loadLeaderboard(tab); };
+        function toggleLB() {
+            const p=document.getElementById('lb-panel');
+            if(p.classList.toggle('open')) loadLeaderboard(_lbTab);
+        }
+
+        // ═══════════════════════════════════════════
+        //  MARKETPLACE
+        // ═══════════════════════════════════════════
+        window.switchMktTab=(tab)=>{ _mktTab=tab; document.querySelectorAll('.mtab').forEach((t,i)=>t.classList.toggle('active',['browse','sell','mine'][i]===tab)); renderMktBody(); };
+        function toggleMarket() {
+            const o=document.getElementById('market-overlay');
+            if(o.classList.toggle('open')){
+                document.getElementById('mkt-coins').textContent=coins;
+                _mktTab='browse'; document.querySelectorAll('.mtab').forEach((t,i)=>t.classList.toggle('active',i===0));
+                renderMktBody();
+                if(document.pointerLockElement) document.exitPointerLock();
+            }
+        }
+        function initMarketNetwork() {
+            onSnapshot(collection(db,'artifacts',APP_ID,'public','data','market'),snap=>{
+                _mktListings=[];
+                snap.forEach(d=>_mktListings.push({id:d.id,...d.data()}));
+                if(document.getElementById('market-overlay').classList.contains('open')) renderMktBody();
+            });
+        }
+        function mkCanvas(item) {
+            const c=document.createElement('canvas'); c.width=32;c.height=32;
+            if(!item||!atlas) return c;
+            const blk=BLOCKS[item.id],tl=TOOLS[item.id],ar=ARMOR&&ARMOR[item.id];
+            if(blk&&blk.tiles){const t=blk.tiles[4],ctx=c.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.drawImage(atlas.image,(t%ATLAS_COLS)*32,Math.floor(t/ATLAS_COLS)*32,32,32,0,0,32,32);}
+            else if(tl) drawToolIcon(c,tl);
+            else if(ar) drawArmorIcon(c,Object.keys(ARMOR).find(k=>ARMOR[k]===ar));
+            return c;
+        }
+        function renderMktBody() {
+            const body=document.getElementById('mkt-body'); if(!body) return;
+            document.getElementById('mkt-coins').textContent=coins;
+            body.innerHTML='';
+            if(_mktTab==='browse') {
+                const listings=_mktListings.filter(l=>l.seller!==userId);
+                if(!listings.length){body.innerHTML='<div class="me">NO LISTINGS — BE FIRST!</div>';return;}
+                listings.forEach(l=>{
+                    const div=document.createElement('div'); div.className='ml';
+                    div.appendChild(mkCanvas({id:l.itemId}));
+                    const name=BLOCKS[l.itemId]?.name||TOOLS[l.itemId]?.name||'Item';
+                    div.innerHTML+=`<div class="ml-i"><div class="ml-n">${name} ×${l.qty}</div><div class="ml-s">by ${(l.sellerName||'?').substr(0,10)}</div></div><div class="ml-p">${l.price}🪙</div>`;
+                    const btn=document.createElement('div'); btn.className='mb mb-buy'; btn.textContent='BUY';
+                    btn.onclick=()=>buyMarketListing(l); div.appendChild(btn); body.appendChild(div);
+                });
+            } else if(_mktTab==='sell') {
+                const form=document.createElement('div'); form.className='mf';
+                form.innerHTML='<div class="mf-t">SELECT ITEM FROM INVENTORY</div>';
+                const grid=document.createElement('div'); grid.className='mi-g';
+                inventory.forEach((item,i)=>{
+                    if(!item||item.count<=0) return;
+                    const sl=document.createElement('div'); sl.className='mi-s'+(_mktSelectedSlot===i?' sel':'');
+                    sl.appendChild(mkCanvas(item));
+                    const cnt=document.createElement('div'); cnt.className='slot-count'; cnt.textContent=item.count; sl.appendChild(cnt);
+                    sl.onclick=()=>{_mktSelectedSlot=i;renderMktBody();}; grid.appendChild(sl);
+                });
+                form.appendChild(grid);
+                const ctrl=document.createElement('div'); ctrl.className='mr';
+                ctrl.innerHTML='<span class="tr-l">QTY:</span><input type="number" id="mkt-qty" class="mn" value="1" min="1" max="64"><span class="tr-l">PRICE:</span><input type="number" id="mkt-price" class="mn" value="10" min="1"><div class="mlb" id="mkt-list-btn">LIST</div>';
+                form.appendChild(ctrl); body.appendChild(form);
+                document.getElementById('mkt-list-btn').onclick=createListing;
+            } else {
+                const mine=_mktListings.filter(l=>l.seller===userId);
+                if(!mine.length){body.innerHTML='<div class="me">NO ACTIVE LISTINGS</div>';return;}
+                mine.forEach(l=>{
+                    const div=document.createElement('div'); div.className='ml';
+                    div.appendChild(mkCanvas({id:l.itemId}));
+                    const name=BLOCKS[l.itemId]?.name||TOOLS[l.itemId]?.name||'Item';
+                    div.innerHTML+=`<div class="ml-i"><div class="ml-n">${name} ×${l.qty}</div><div class="ml-s">Listed for ${l.price}🪙</div></div>`;
+                    const btn=document.createElement('div'); btn.className='mb mb-del'; btn.textContent='CANCEL';
+                    btn.onclick=()=>cancelListing(l.id); div.appendChild(btn); body.appendChild(div);
+                });
+            }
+        }
+        async function createListing() {
+            if(_mktSelectedSlot<0||!inventory[_mktSelectedSlot]){showToast('Select an item first','#e74c3c','#e74c3c');return;}
+            const qty=Math.max(1,parseInt(document.getElementById('mkt-qty')?.value)||1);
+            const price=Math.max(1,parseInt(document.getElementById('mkt-price')?.value)||10);
+            const item=inventory[_mktSelectedSlot];
+            if(qty>item.count){showToast('Not enough items','#e74c3c','#e74c3c');return;}
+            item.count-=qty; if(item.count<=0) inventory[_mktSelectedSlot]=null;
+            updateHotbarFromInventory(); updateUI(); saveGame();
+            await addDoc(collection(db,'artifacts',APP_ID,'public','data','market'),{
+                seller:userId,sellerName:userDisplayName,itemId:item.id,qty,price,timestamp:serverTimestamp()
+            });
+            _mktSelectedSlot=-1; showToast('📦 Listed!','#FFD700','#FFD700');
+            window.switchMktTab('mine');
+        }
+        async function buyMarketListing(l) {
+            if(coins<l.price){showToast('Not enough coins','#e74c3c','#e74c3c');return;}
+            coins-=l.price;
+            let added=false;
+            for(let i=0;i<30;i++){if(inventory[i]&&inventory[i].id===l.itemId){inventory[i].count+=l.qty;added=true;break;}}
+            if(!added) for(let i=0;i<30;i++){if(!inventory[i]){inventory[i]={id:l.itemId,count:l.qty};break;}}
+            const sRef=doc(db,'artifacts',APP_ID,'public','data','user_stats',l.seller);
+            getDoc(sRef).then(snap=>{
+                const sc=(snap.exists()?snap.data().coins||0:0)+l.price;
+                setDoc(sRef,{coins:sc},{merge:true});
+            });
+            await deleteDoc(doc(db,'artifacts',APP_ID,'public','data','market',l.id));
+            updateCoinDisplay(); updateHotbarFromInventory(); updateUI(); saveGame();
+            showToast('✅ Bought!','#2ecc71','#2ecc71');
+        }
+        async function cancelListing(id) {
+            const l=_mktListings.find(x=>x.id===id); if(!l) return;
+            let added=false;
+            for(let i=0;i<30;i++){if(inventory[i]&&inventory[i].id===l.itemId){inventory[i].count+=l.qty;added=true;break;}}
+            if(!added) for(let i=0;i<30;i++){if(!inventory[i]){inventory[i]={id:l.itemId,count:l.qty};break;}}
+            await deleteDoc(doc(db,'artifacts',APP_ID,'public','data','market',id));
+            updateHotbarFromInventory(); updateUI(); saveGame();
+            showToast('Listing cancelled','#aaa','#aaa');
+        }
+
+        // ═══════════════════════════════════════════
+        //  PLAYER TRADING (tap player name to trade)
+        // ═══════════════════════════════════════════
+        function openTradeUI(pid,name) {
+            _tradeTargetPid=pid; _tradeTargetName=name; _tradeSelectedSlot=-1;
+            document.getElementById('trade-target-name').textContent=name;
+            renderTradeGrid();
+            document.getElementById('trade-overlay').classList.add('open');
+            if(document.pointerLockElement) document.exitPointerLock();
+        }
+        function renderTradeGrid() {
+            const g=document.getElementById('trade-inv-grid'); if(!g) return; g.innerHTML='';
+            inventory.forEach((item,i)=>{
+                if(!item||item.count<=0) return;
+                const sl=document.createElement('div'); sl.className='tr-sl'+(_tradeSelectedSlot===i?' sel':'');
+                sl.appendChild(mkCanvas(item));
+                const cnt=document.createElement('div'); cnt.className='slot-count'; cnt.textContent=item.count; sl.appendChild(cnt);
+                sl.onclick=()=>{_tradeSelectedSlot=i;renderTradeGrid();}; g.appendChild(sl);
+            });
+        }
+        function closeTradeUI() { document.getElementById('trade-overlay').classList.remove('open'); _tradeTargetPid=''; _tradeSelectedSlot=-1; }
+        async function sendTrade() {
+            if(!_tradeTargetPid){closeTradeUI();return;}
+            const qty=Math.max(1,parseInt(document.getElementById('trade-qty')?.value)||1);
+            const coinsOffer=Math.max(0,parseInt(document.getElementById('trade-coins-amt')?.value)||0);
+            let itemId=null,itemCount=0;
+            if(_tradeSelectedSlot>=0&&inventory[_tradeSelectedSlot]){
+                if(qty>inventory[_tradeSelectedSlot].count){showToast('Not enough items','#e74c3c','#e74c3c');return;}
+                itemId=inventory[_tradeSelectedSlot].id; itemCount=qty;
+                inventory[_tradeSelectedSlot].count-=itemCount;
+                if(inventory[_tradeSelectedSlot].count<=0) inventory[_tradeSelectedSlot]=null;
+            }
+            if(coinsOffer>coins){showToast('Not enough coins','#e74c3c','#e74c3c');return;}
+            coins-=coinsOffer;
+            updateHotbarFromInventory(); updateCoinDisplay(); updateUI();
+            const ref=await addDoc(collection(db,'artifacts',APP_ID,'public','data','trades'),{
+                from:userId,fromName:userDisplayName,to:_tradeTargetPid,
+                itemId,itemCount,coinsOffer,status:'pending',timestamp:serverTimestamp()
+            });
+            _tradePendingId=ref.id; closeTradeUI();
+            showToast('📦 Trade sent to '+_tradeTargetName,'#2ecc71','#2ecc71');
+        }
+        function initTradeNetwork() {
+            onSnapshot(collection(db,'artifacts',APP_ID,'public','data','trades'),snap=>{
+                snap.docChanges().forEach(change=>{
+                    const d=change.doc.data(),tid=change.doc.id;
+                    if(change.type==='added'&&d.to===userId&&d.status==='pending'){
+                        _tradePendingId=tid;
+                        const name=d.fromName||d.from.substr(0,8);
+                        const iName=d.itemId?(BLOCKS[d.itemId]?.name||TOOLS[d.itemId]?.name||'Item')+' ×'+d.itemCount:'';
+                        const cPart=d.coinsOffer>0?d.coinsOffer+'🪙':'';
+                        document.getElementById('trade-inc-desc').textContent=name+' offers: '+(iName&&cPart?iName+' + '+cPart:iName||cPart||'nothing');
+                        document.getElementById('trade-incoming').classList.add('show');
+                    }
+                    if(change.type==='modified'&&d.from===userId){
+                        if(d.status==='accepted') showToast('✅ Trade accepted!','#2ecc71','#2ecc71');
+                        if(d.status==='declined'){
+                            if(d.itemId){let a=false;for(let i=0;i<30;i++){if(inventory[i]&&inventory[i].id===d.itemId){inventory[i].count+=d.itemCount;a=true;break;}}if(!a)for(let i=0;i<30;i++){if(!inventory[i]){inventory[i]={id:d.itemId,count:d.itemCount};break;}}}
+                            coins+=d.coinsOffer||0; updateHotbarFromInventory(); updateCoinDisplay(); updateUI(); saveGame();
+                            showToast('❌ Trade declined — items refunded','#e74c3c','#e74c3c');
+                        }
+                        deleteDoc(doc(db,'artifacts',APP_ID,'public','data','trades',tid));
+                    }
+                });
+            });
+        }
+        async function acceptTrade() {
+            document.getElementById('trade-incoming').classList.remove('show');
+            if(!_tradePendingId) return;
+            const snap=await getDoc(doc(db,'artifacts',APP_ID,'public','data','trades',_tradePendingId)).catch(()=>null);
+            if(!snap||!snap.exists()) return;
+            const d=snap.data();
+            if(d.itemId){let a=false;for(let i=0;i<30;i++){if(inventory[i]&&inventory[i].id===d.itemId){inventory[i].count+=d.itemCount;a=true;break;}}if(!a)for(let i=0;i<30;i++){if(!inventory[i]){inventory[i]={id:d.itemId,count:d.itemCount};break;}}}
+            coins+=d.coinsOffer||0; updateHotbarFromInventory(); updateCoinDisplay(); updateUI(); saveGame();
+            setDoc(doc(db,'artifacts',APP_ID,'public','data','trades',_tradePendingId),{status:'accepted'},{merge:true});
+            showToast('✅ Trade accepted!','#2ecc71','#2ecc71'); _tradePendingId=null;
+        }
+        function declineTrade() {
+            document.getElementById('trade-incoming').classList.remove('show');
+            if(!_tradePendingId) return;
+            setDoc(doc(db,'artifacts',APP_ID,'public','data','trades',_tradePendingId),{status:'declined'},{merge:true});
+            _tradePendingId=null;
+        }
+
         function setupInput() {
             document.getElementById('inv-btn').onclick = (e) => { e.stopPropagation(); toggleInventory(); };
             document.getElementById('close-inv').onclick = () => toggleInventory();
@@ -3694,12 +4187,33 @@
             document.getElementById('settings-rd-btn').onclick = () => {
                 const newDist = parseInt(rdSlider.value);
                 RENDER_DIST = newDist;
-                // Force a full chunk reload by clearing the last player chunk cache
                 lastPlayerCX = null; lastPlayerCZ = null;
-                // Rebuild visible world with new distance
                 updateWorld();
                 showToast('✔ Render distance: ' + newDist, '#4af', '#4af');
             };
+
+            // New feature buttons
+            document.getElementById('market-btn').onclick = (e) => { e.stopPropagation(); toggleMarket(); };
+            document.getElementById('quest-btn').onclick  = (e) => { e.stopPropagation(); toggleQuestPanel(); };
+            document.getElementById('lb-btn').onclick     = (e) => { e.stopPropagation(); toggleLB(); };
+            document.getElementById('quest-close').onclick  = () => document.getElementById('quest-panel').classList.remove('open');
+            document.getElementById('lb-close').onclick     = () => document.getElementById('lb-panel').classList.remove('open');
+            document.getElementById('trade-send-btn').onclick   = () => sendTrade();
+            document.getElementById('trade-cancel-btn').onclick = () => closeTradeUI();
+            document.getElementById('trade-accept-btn').onclick  = () => acceptTrade();
+            document.getElementById('trade-decline-btn').onclick = () => declineTrade();
+            // Tap player name to trade on mobile
+            document.getElementById('players-list').addEventListener('click', e => {
+                if(!isTouch) return;
+                const entry = e.target.closest('.player-entry');
+                if(!entry) return;
+                const pid = entry.dataset.pid; if(!pid||pid===userId) return;
+                const name = (otherPlayers[pid]?.data?.name)||pid.substr(0,8);
+                togglePlayersPanel();
+                openTradeUI(pid, name);
+            });
+            // Quest timer
+            setInterval(updateQuestTimer, 1000); updateQuestTimer();
 
             // Touch feedback toggle
             document.getElementById('tf-classic-btn').onclick = () => {
@@ -4703,6 +5217,20 @@
 
             setJoinStep(3, 'CONNECTING TO SERVER...');
             try { initNetwork(); } catch(e) { console.warn('Network init error (game will still run):', e); }
+            try { initMarketNetwork(); } catch(e) {}
+            try { initTradeNetwork(); } catch(e) {}
+            // Load saved stats + quest state
+            try {
+                const statsSnap = await getDoc(doc(db,'artifacts',APP_ID,'public','data','user_stats',userId));
+                if(statsSnap.exists()) {
+                    const d = statsSnap.data();
+                    statBlocksPlaced = d.blocksPlaced || 0;
+                    statBlocksBroken = d.blocksBroken || 0;
+                    statKills = d.kills || 0;
+                    const today = new Date().toISOString().slice(0,10);
+                    if(d.questDate === today && d.questState) questState = d.questState;
+                }
+            } catch(e) {}
             loadSounds(); // non-blocking — sounds load in background
             await new Promise(r => setTimeout(r, 800));
 
